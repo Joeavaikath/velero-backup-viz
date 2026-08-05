@@ -1,0 +1,1724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Velero Backup Controller — Processing Flow</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #161922;
+    --surface-hover: #1e2130;
+    --border: #282c3a;
+    --text: #e1e4ed;
+    --text-muted: #7a7f92;
+    --text-dim: #4e5264;
+
+    --c-queue: #22d3ee;
+    --c-queue-dim: #0c3d47;
+    --c-queue-bg: rgba(34,211,238,0.04);
+
+    --c-main: #6c8cff;
+    --c-main-dim: #2a3766;
+    --c-main-bg: rgba(108,140,255,0.04);
+
+    --c-ops: #c084fc;
+    --c-ops-dim: #3d2266;
+    --c-ops-bg: rgba(192,132,252,0.04);
+
+    --c-final: #fb923c;
+    --c-final-dim: #4d2e12;
+    --c-final-bg: rgba(251,146,60,0.04);
+
+    --green: #4ade80;
+    --green-dim: #16503a;
+    --red: #f87171;
+    --red-dim: #5c1e1e;
+    --yellow: #facc15;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  /* ── Header ── */
+  header {
+    height: 56px;
+    padding: 0 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg);
+    z-index: 100;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
+  header h1 span { color: var(--text-muted); font-weight: 400; }
+
+  .header-right { display: flex; align-items: center; gap: 20px; }
+
+  .phase-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--surface);
+    padding: 5px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    min-width: 200px;
+  }
+  .phase-indicator .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-dim);
+    transition: background 0.3s;
+  }
+  .phase-indicator .dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+  /* ── Layout ── */
+  .app {
+    display: flex;
+    height: calc(100vh - 56px);
+  }
+
+  /* ── Swim lanes (left) ── */
+  .lanes {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .lane {
+    flex: 1;
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    min-height: 0;
+    transition: background 0.4s;
+  }
+  .lane:last-child { border-bottom: none; }
+  .lane.active-lane { z-index: 2; }
+
+  .lane-label {
+    width: 180px;
+    flex-shrink: 0;
+    padding: 12px 16px;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    transition: border-color 0.3s;
+  }
+  .lane-label-name { font-size: 12px; font-weight: 600; letter-spacing: 0.3px; }
+  .lane-label-file {
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+  .lane-label-watch { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+  .lane-label-watch strong { color: var(--text-muted); font-weight: 500; }
+
+  .lane-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    position: relative;
+    scroll-behavior: smooth;
+  }
+
+  /* Per-lane coloring */
+  .lane[data-ctrl="queue"] { background: var(--c-queue-bg); }
+  .lane[data-ctrl="queue"] .lane-label { border-right-color: var(--c-queue-dim); }
+  .lane[data-ctrl="queue"] .lane-label-name { color: var(--c-queue); }
+  .lane[data-ctrl="queue"].active-lane { background: rgba(34,211,238,0.08); }
+
+  .lane[data-ctrl="main"] { background: var(--c-main-bg); }
+  .lane[data-ctrl="main"] .lane-label { border-right-color: var(--c-main-dim); }
+  .lane[data-ctrl="main"] .lane-label-name { color: var(--c-main); }
+  .lane[data-ctrl="main"].active-lane { background: rgba(108,140,255,0.08); }
+
+  .lane[data-ctrl="ops"] { background: var(--c-ops-bg); }
+  .lane[data-ctrl="ops"] .lane-label { border-right-color: var(--c-ops-dim); }
+  .lane[data-ctrl="ops"] .lane-label-name { color: var(--c-ops); }
+  .lane[data-ctrl="ops"].active-lane { background: rgba(192,132,252,0.08); }
+
+  .lane[data-ctrl="final"] { background: var(--c-final-bg); }
+  .lane[data-ctrl="final"] .lane-label { border-right-color: var(--c-final-dim); }
+  .lane[data-ctrl="final"] .lane-label-name { color: var(--c-final); }
+  .lane[data-ctrl="final"].active-lane { background: rgba(251,146,60,0.08); }
+
+  /* ── Step nodes ── */
+  .step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    min-width: 130px;
+    max-width: 190px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .step:hover { background: var(--surface-hover); transform: translateY(-1px); }
+  .step.selected {
+    border-color: #fff;
+    box-shadow: 0 0 0 1px #fff, 0 4px 20px rgba(255,255,255,0.06);
+  }
+  .step.sim-active { animation: stepPulse 0.6s ease-out; }
+  .step.sim-visited { opacity: 0.5; }
+  .step.sim-current { opacity: 1; }
+
+  @keyframes stepPulse {
+    0% { transform: scale(1); }
+    30% { transform: scale(1.04); }
+    100% { transform: scale(1); }
+  }
+
+  .step-phase {
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.6px; padding: 2px 7px; border-radius: 3px;
+    display: inline-block; margin-bottom: 5px;
+  }
+  .step-title { font-size: 12px; font-weight: 500; line-height: 1.3; margin-bottom: 3px; }
+  .step-actions { font-size: 10px; color: var(--text-dim); line-height: 1.4; }
+
+  /* Phase colors */
+  .step[data-phase="new"] .step-phase { background: var(--c-queue-dim); color: var(--c-queue); }
+  .step[data-phase="queued"] .step-phase { background: rgba(250,204,21,0.15); color: var(--yellow); }
+  .step[data-phase="ready"] .step-phase { background: var(--c-queue-dim); color: var(--c-queue); }
+  .step[data-phase="inprogress"] .step-phase { background: var(--c-main-dim); color: var(--c-main); }
+  .step[data-phase="waiting"] .step-phase { background: var(--c-ops-dim); color: var(--c-ops); }
+  .step[data-phase="finalizing"] .step-phase { background: var(--c-final-dim); color: var(--c-final); }
+  .step[data-phase="completed"] .step-phase { background: var(--green-dim); color: var(--green); }
+  .step[data-phase="failed"] .step-phase { background: var(--red-dim); color: var(--red); }
+  .step[data-phase="internal"] .step-phase { background: rgba(122,127,146,0.15); color: var(--text-muted); }
+
+  /* Volume path steps get a teal/green tint to distinguish them */
+  .step.vol-path { border-left: 3px solid rgba(74,222,128,0.3); }
+  .step.vol-path .step-phase { background: rgba(74,222,128,0.12) !important; color: var(--green) !important; }
+
+  /* Active step glow per controller */
+  .lane[data-ctrl="queue"] .step.sim-current { border-color: var(--c-queue); box-shadow: 0 0 12px rgba(34,211,238,0.2); }
+  .lane[data-ctrl="main"] .step.sim-current { border-color: var(--c-main); box-shadow: 0 0 12px rgba(108,140,255,0.2); }
+  .lane[data-ctrl="ops"] .step.sim-current { border-color: var(--c-ops); box-shadow: 0 0 12px rgba(192,132,252,0.2); }
+  .lane[data-ctrl="final"] .step.sim-current { border-color: var(--c-final); box-shadow: 0 0 12px rgba(251,146,60,0.2); }
+
+  /* ── Arrows between steps (within a lane) ── */
+  .arrow-right {
+    width: 18px; height: 2px;
+    background: var(--border);
+    position: relative; flex-shrink: 0;
+  }
+  .arrow-right::after {
+    content: '';
+    position: absolute; right: -1px; top: -4px;
+    border-left: 6px solid var(--border);
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+  }
+
+  /* ── Handoff banners (between lanes) ── */
+  .handoff-banner {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 6px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    border-top: 1px dashed;
+    border-bottom: 1px dashed;
+    animation: handoffSlideIn 0.3s ease-out;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 5;
+  }
+  .handoff-banner.visible { display: flex; }
+
+  @keyframes handoffSlideIn {
+    from { opacity: 0; transform: scaleY(0); }
+    to { opacity: 1; transform: scaleY(1); }
+  }
+
+  .handoff-banner .handoff-from,
+  .handoff-banner .handoff-to {
+    font-weight: 600;
+    font-size: 11px;
+  }
+  .handoff-banner .handoff-arrow-icon {
+    font-size: 16px;
+    line-height: 1;
+    animation: handoffBounce 1s ease-in-out infinite;
+  }
+  @keyframes handoffBounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(2px); }
+  }
+  .handoff-banner .handoff-phase {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .handoff-banner .handoff-trigger {
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--text-dim);
+    margin-left: 8px;
+  }
+
+  /* Handoff color variants */
+  .handoff-banner[data-to="main"] {
+    background: rgba(108,140,255,0.06);
+    border-color: var(--c-main-dim);
+    color: var(--c-main);
+  }
+  .handoff-banner[data-to="main"] .handoff-phase { background: var(--c-main-dim); }
+  .handoff-banner[data-to="ops"] {
+    background: rgba(192,132,252,0.06);
+    border-color: var(--c-ops-dim);
+    color: var(--c-ops);
+  }
+  .handoff-banner[data-to="ops"] .handoff-phase { background: var(--c-ops-dim); }
+  .handoff-banner[data-to="final"] {
+    background: rgba(251,146,60,0.06);
+    border-color: var(--c-final-dim);
+    color: var(--c-final);
+  }
+  .handoff-banner[data-to="final"] .handoff-phase { background: var(--c-final-dim); }
+
+  /* ── Detail panel ── */
+  .detail-panel {
+    width: 380px;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .detail-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+    background: var(--surface); z-index: 5;
+  }
+  .detail-ctrl-badge {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.6px; padding: 3px 8px; border-radius: 4px;
+    display: inline-block; margin-bottom: 6px;
+  }
+  .detail-title { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+  .detail-file {
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    color: var(--text-dim);
+  }
+  .detail-body { padding: 16px 20px; }
+  .detail-section { margin-bottom: 18px; }
+  .detail-section h3 {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--text-dim); margin-bottom: 8px; font-weight: 600;
+  }
+  .detail-section p { font-size: 12px; line-height: 1.6; color: var(--text-muted); }
+
+  .action-list { list-style: none; padding: 0; }
+  .action-list li {
+    font-size: 12px; line-height: 1.5;
+    padding: 5px 0 5px 14px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+  }
+
+  .error-list { list-style: none; padding: 0; }
+  .error-list li {
+    font-size: 12px; line-height: 1.5;
+    padding: 6px 10px;
+    background: rgba(248,113,113,0.05);
+    border-left: 2px solid var(--red-dim);
+    margin-bottom: 4px;
+    border-radius: 0 4px 4px 0;
+  }
+  .error-list li strong { color: var(--red); font-weight: 500; }
+
+  .handoff-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-top: 6px;
+  }
+  .handoff-box .from-to {
+    font-size: 11px; color: var(--text-muted);
+    display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+  }
+  .handoff-box .from-to .arr { color: var(--text-dim); }
+  .handoff-box .trigger { font-size: 11px; color: var(--text-dim); }
+
+  .code-block {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 11px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; overflow-x: auto; white-space: pre;
+    line-height: 1.5; color: var(--text-dim); max-height: 200px;
+  }
+
+  .empty-detail {
+    display: flex; align-items: center; justify-content: center;
+    height: 100%; color: var(--text-dim); font-size: 13px;
+    text-align: center; padding: 40px; line-height: 1.6;
+  }
+
+  /* ── Controls ── */
+  .controls {
+    position: fixed; bottom: 20px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; align-items: center; gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 6px 10px; z-index: 200;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+  .ctrl-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 11px; padding: 5px 12px; border-radius: 5px;
+    cursor: pointer; transition: all 0.15s;
+    font-family: inherit; white-space: nowrap;
+  }
+  .ctrl-btn:hover { background: var(--surface-hover); color: var(--text); border-color: var(--text-dim); }
+  .ctrl-btn.active { background: var(--c-main-dim); border-color: var(--c-main); color: var(--c-main); }
+  .ctrl-btn.primary { background: var(--c-main-dim); border-color: var(--c-main); color: var(--c-main); }
+  .ctrl-btn:disabled { opacity: 0.3; cursor: default; }
+  .ctrl-btn:disabled:hover { background: transparent; color: var(--text-muted); border-color: var(--border); }
+
+  .ctrl-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+
+  .speed-control { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); }
+  .speed-control input[type="range"] { width: 60px; accent-color: var(--c-main); }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex;align-items:center;gap:16px">
+    <h1>Velero Backup</h1>
+    <nav style="display:flex;gap:4px">
+      <a href="index.html" style="font-size:12px;padding:5px 12px;border-radius:6px;text-decoration:none;color:var(--text-muted);border:1px solid transparent">Overview</a>
+      <a href="flow.html" style="font-size:12px;padding:5px 12px;border-radius:6px;text-decoration:none;background:var(--c-main-dim);border:1px solid var(--c-main);color:var(--c-main)">Controller Flow</a>
+      <a href="decision-tree.html" style="font-size:12px;padding:5px 12px;border-radius:6px;text-decoration:none;color:var(--text-muted);border:1px solid transparent">Volume Decision Tree</a>
+      <a href="timeline.html" style="font-size:12px;padding:5px 12px;border-radius:6px;text-decoration:none;color:var(--text-muted);border:1px solid transparent">Timeline</a>
+    </nav>
+  </div>
+  <div class="header-right">
+    <div class="phase-indicator">
+      <div class="dot" id="simDot"></div>
+      <span id="currentPhaseText">Select a simulation or click a step</span>
+    </div>
+  </div>
+</header>
+
+<div class="app">
+  <div class="lanes" id="lanesContainer">
+    <!-- Lane: Queue Controller -->
+    <div class="lane" data-ctrl="queue" id="lane-queue">
+      <div class="lane-label">
+        <div class="lane-label-name">Queue Controller</div>
+        <div class="lane-label-file">backup_queue_controller.go</div>
+        <div class="lane-label-watch">Watches: <strong>"" | New | Queued</strong></div>
+      </div>
+      <div class="lane-content" id="lane-content-queue"></div>
+    </div>
+
+    <!-- Handoff: Queue → Main -->
+    <div class="handoff-banner" id="handoff-queue-main" data-to="main">
+      <span class="handoff-from">Queue Controller</span>
+      <span class="handoff-arrow-icon">&#8595;</span>
+      <span class="handoff-to">Backup Controller</span>
+      <span class="handoff-phase" id="handoff-queue-main-phase">ReadyToStart</span>
+      <span class="handoff-trigger">Phase written to CR triggers Update predicate</span>
+    </div>
+
+    <!-- Lane: Main Backup Controller -->
+    <div class="lane" data-ctrl="main" id="lane-main">
+      <div class="lane-label">
+        <div class="lane-label-name">Backup Controller</div>
+        <div class="lane-label-file">backup_controller.go<br>backup/backup.go<br>backup/item_backupper.go</div>
+        <div class="lane-label-watch">Watches: <strong>ReadyToStart</strong></div>
+      </div>
+      <div class="lane-content" id="lane-content-main"></div>
+    </div>
+
+    <!-- Handoff: Main → Ops -->
+    <div class="handoff-banner" id="handoff-main-ops" data-to="ops">
+      <span class="handoff-from">Backup Controller</span>
+      <span class="handoff-arrow-icon">&#8595;</span>
+      <span class="handoff-to">Operations Controller</span>
+      <span class="handoff-phase" id="handoff-main-ops-phase">WaitingForPluginOps</span>
+      <span class="handoff-trigger">Periodic poller picks up phase every 10s</span>
+    </div>
+
+    <!-- Handoff: Main → Final (direct, no async) -->
+    <div class="handoff-banner" id="handoff-main-final" data-to="final">
+      <span class="handoff-from">Backup Controller</span>
+      <span class="handoff-arrow-icon">&#8595;</span>
+      <span class="handoff-to">Finalizer Controller</span>
+      <span class="handoff-phase" id="handoff-main-final-phase">Finalizing</span>
+      <span class="handoff-trigger">Phase written to CR triggers watch predicate</span>
+    </div>
+
+    <!-- Lane: Operations Controller -->
+    <div class="lane" data-ctrl="ops" id="lane-ops">
+      <div class="lane-label">
+        <div class="lane-label-name">Operations Controller</div>
+        <div class="lane-label-file">backup_operations_controller.go</div>
+        <div class="lane-label-watch">Watches: <strong>WaitingForPluginOps*</strong><br>Polls every 10s</div>
+      </div>
+      <div class="lane-content" id="lane-content-ops"></div>
+    </div>
+
+    <!-- Handoff: Ops → Final -->
+    <div class="handoff-banner" id="handoff-ops-final" data-to="final">
+      <span class="handoff-from">Operations Controller</span>
+      <span class="handoff-arrow-icon">&#8595;</span>
+      <span class="handoff-to">Finalizer Controller</span>
+      <span class="handoff-phase" id="handoff-ops-final-phase">Finalizing</span>
+      <span class="handoff-trigger">Phase written to CR triggers watch predicate</span>
+    </div>
+
+    <!-- Lane: Finalizer Controller -->
+    <div class="lane" data-ctrl="final" id="lane-final">
+      <div class="lane-label">
+        <div class="lane-label-name">Finalizer Controller</div>
+        <div class="lane-label-file">backup_finalizer_controller.go</div>
+        <div class="lane-label-watch">Watches: <strong>Finalizing*</strong></div>
+      </div>
+      <div class="lane-content" id="lane-content-final"></div>
+    </div>
+  </div>
+
+  <div class="detail-panel" id="detailPanel">
+    <div class="empty-detail" id="emptyDetail">
+      Click any step in the flow to see<br>controller actions and source code.<br><br>
+      Or run a simulation below.
+    </div>
+    <div id="detailContent" style="display:none"></div>
+  </div>
+</div>
+
+<div class="controls" style="flex-wrap: wrap; max-width: 900px; justify-content: center;">
+  <div style="display:flex; gap:6px; align-items:center; width:100%; justify-content:center; padding-bottom:4px; border-bottom:1px solid var(--border); margin-bottom:4px;">
+    <span style="font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px; margin-right:4px;">Phase flows</span>
+    <button class="ctrl-btn primary" onclick="simulate('happy', this)">Happy Path</button>
+    <button class="ctrl-btn" onclick="simulate('validation-fail', this)">Validation Fail</button>
+    <button class="ctrl-btn" onclick="simulate('partial-fail', this)">Partial Fail</button>
+    <button class="ctrl-btn" onclick="simulate('fatal', this)">Fatal Error</button>
+  </div>
+  <div style="display:flex; gap:6px; align-items:center; width:100%; justify-content:center;">
+    <span style="font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px; margin-right:4px;">Volume paths</span>
+    <button class="ctrl-btn" onclick="simulate('kopia-fsb', this)">Kopia FSB</button>
+    <button class="ctrl-btn" onclick="simulate('async', this)">CSI Snapshot</button>
+    <button class="ctrl-btn" onclick="simulate('datamover', this)">CSI + Data Mover</button>
+    <button class="ctrl-btn" onclick="simulate('native-snap', this)">Native Snapshot</button>
+    <div class="ctrl-sep"></div>
+    <div class="speed-control">
+      <span>Speed</span>
+      <input type="range" min="1" max="5" value="3" id="speedSlider">
+    </div>
+    <div class="ctrl-sep"></div>
+    <button class="ctrl-btn" onclick="togglePause()" id="pauseBtn" disabled>Pause</button>
+    <button class="ctrl-btn" onclick="stepForward()" id="stepBtn" disabled>Step</button>
+    <button class="ctrl-btn" onclick="resetSim()">Reset</button>
+  </div>
+</div>
+
+<script>
+// ─── DATA ───
+
+const STEPS = [
+  // ── Queue Controller ──
+  {
+    id: 'receive-new', ctrl: 'queue', phase: 'new', phaseLabel: 'New / ""',
+    title: 'Receive Backup CR',
+    actionsPreview: 'Predicate fires on Create/Update',
+    file: 'backup_queue_controller.go:104-119',
+    actions: [
+      'Predicate fires: phase is "" or "New"',
+      'Reconciler fetches backup object from API',
+      'Switch on backup.Status.Phase'
+    ],
+    description: 'A Backup CR is created (via velero backup create or a Schedule). The queue controller\'s predicate matches on phase "" or "New" and enqueues it for reconciliation.',
+    code: `// backup_queue_controller.go:104-119
+CreateFunc: func(e event.CreateEvent) bool {
+  backup := e.Object.(*velerov1api.Backup)
+  return backup.Status.Phase == "" ||
+    backup.Status.Phase == velerov1api.BackupPhaseNew
+},`,
+    errors: [], handoffTo: null
+  },
+  {
+    id: 'assign-queue-pos', ctrl: 'queue', phase: 'queued', phaseLabel: 'Queued',
+    title: 'Assign Queue Position',
+    actionsPreview: 'Find max position, set Queued',
+    file: 'backup_queue_controller.go:248-264',
+    actions: [
+      'List all existing backups in cluster',
+      'Find maximum QueuePosition value',
+      'Set phase → Queued',
+      'Set QueuePosition = max + 1',
+      'Patch backup CR with new status'
+    ],
+    description: 'The backup is assigned a queue position for FIFO ordering. Multiple backups can be queued simultaneously but only a limited number run concurrently.',
+    code: `// backup_queue_controller.go:250-261
+maxQueuePosition := 0
+for _, b := range backupList.Items {
+  if b.Status.QueuePosition > maxQueuePosition {
+    maxQueuePosition = b.Status.QueuePosition
+  }
+}
+backup.Status.Phase = velerov1api.BackupPhaseQueued
+backup.Status.QueuePosition = maxQueuePosition + 1`,
+    errors: [], handoffTo: null
+  },
+  {
+    id: 'concurrency-check', ctrl: 'queue', phase: 'queued', phaseLabel: 'Queued',
+    title: 'Concurrency & Conflict Check',
+    actionsPreview: 'Check limits, NS conflicts, ordering',
+    file: 'backup_queue_controller.go:265-292',
+    actions: [
+      'Check RunningCount() >= concurrentBackups',
+      '→ If at limit: stay Queued, recheck in 1min',
+      'Check detectNamespaceConflict() with earlier backups',
+      '→ If conflict: stay Queued until conflict resolves',
+      'Check checkForEarlierRunnableBackups()',
+      '→ If earlier backup can run: stay Queued (FIFO)'
+    ],
+    description: 'Three gates must pass before a backup can start: concurrency limit not reached, no namespace overlap with running backups, and no earlier-queued backup waiting. Re-evaluated every minute and when any backup completes.',
+    code: `// backup_queue_controller.go:274-292
+if r.backupTracker.RunningCount() >= r.concurrentBackups {
+  return ctrl.Result{}, nil  // stay queued
+}
+if conflict := detectNamespaceConflict(backup, ...); conflict {
+  return ctrl.Result{}, nil  // stay queued
+}
+if earlier := checkForEarlierRunnableBackups(...); earlier {
+  return ctrl.Result{}, nil  // stay queued
+}`,
+    errors: [
+      { condition: 'At concurrency limit', result: 'Stays Queued — re-checked every 1 minute' },
+      { condition: 'Namespace conflict with running backup', result: 'Stays Queued until conflicting backup finishes' },
+      { condition: 'Earlier queued backup can run first', result: 'Stays Queued — FIFO ordering enforced' }
+    ],
+    handoffTo: null
+  },
+  {
+    id: 'mark-ready', ctrl: 'queue', phase: 'ready', phaseLabel: 'ReadyToStart',
+    title: 'Mark ReadyToStart',
+    actionsPreview: 'Phase → ReadyToStart, hand off',
+    file: 'backup_queue_controller.go:293-314',
+    actions: [
+      'Set phase → ReadyToStart',
+      'Set QueuePosition → 0',
+      'Call backupTracker.AddReadyToStart()',
+      'Patch backup CR',
+      'Re-number queue positions for remaining backups',
+    ],
+    description: 'All gates passed. The queue controller writes ReadyToStart to the backup\'s phase. This is a HANDOFF — the queue controller is done. The main backup controller\'s Update predicate will fire when it sees this phase.',
+    code: `// backup_queue_controller.go:293-300
+backup.Status.Phase = velerov1api.BackupPhaseReadyToStart
+backup.Status.QueuePosition = 0
+r.backupTracker.AddReadyToStart(backup.Name, backup.Namespace)
+// Patch triggers the main backup controller's predicate`,
+    errors: [],
+    handoffTo: { from: 'Queue Controller', fromCtrl: 'queue', to: 'Backup Controller', toCtrl: 'main', trigger: 'Update predicate: phase == ReadyToStart', phase: 'ReadyToStart' }
+  },
+
+  // ── Main Backup Controller ──
+  {
+    id: 'pickup-ready', ctrl: 'main', phase: 'ready', phaseLabel: 'ReadyToStart',
+    title: 'Pick Up Backup',
+    actionsPreview: 'Predicate fires, fetch & guard',
+    file: 'backup_controller.go:178-306',
+    actions: [
+      'Update predicate fires: phase == ReadyToStart',
+      'Fetch backup CR from API',
+      'Double-check phase is ReadyToStart (race guard)',
+      'If phase changed: return nil (another instance got it)'
+    ],
+    description: 'The backup controller\'s Update-only predicate fires. It re-checks the phase to guard against race conditions with multiple controller replicas.',
+    code: `// backup_controller.go:178-200
+UpdateFunc: func(e event.UpdateEvent) bool {
+  backup := e.ObjectNew.(*velerov1api.Backup)
+  return backup.Status.Phase == BackupPhaseReadyToStart
+},
+// Reconcile:
+if backup.Status.Phase != BackupPhaseReadyToStart {
+  return ctrl.Result{}, nil  // race guard
+}`,
+    errors: [
+      { condition: 'Backup not found in API', result: 'Return nil — backup was deleted' },
+      { condition: 'Phase is not ReadyToStart', result: 'Return nil — another replica claimed it' }
+    ],
+    handoffTo: null
+  },
+  {
+    id: 'validate', ctrl: 'main', phase: 'inprogress', phaseLabel: 'Validating',
+    title: 'Validate & Prepare',
+    actionsPreview: 'BSL, VSLs, filters, policies',
+    file: 'backup_controller.go:395-635',
+    actions: [
+      'Deep copy backup, init trackers',
+      'Set defaults: TTL, format, backup type, CSI timeout',
+      'Resolve BSL (default or user-specified)',
+      'Validate BSL: exists? read-only? available?',
+      'Validate VSLs: one per provider, fill defaults',
+      'Set cluster version annotations',
+      'Exclude namespaces with exclude-from-backup label',
+      'Validate resource filters (old vs new API not mixed)',
+      'Auto-exclude CSI VolumeSnapshot resources',
+      'Validate namespace includes/excludes',
+      'Validate label selectors (not both types)',
+      'Resolve resource policies from ConfigMap'
+    ],
+    description: 'prepareBackupRequest() performs comprehensive validation. Errors are accumulated — not returned early — so the user sees all problems at once.',
+    code: `// backup_controller.go:452-501 (BSL resolution)
+if request.Spec.StorageLocation == "" {
+  request.Spec.StorageLocation = r.defaultBackupLocation
+}
+location := &velerov1api.BackupStorageLocation{}
+if err := r.kbClient.Get(ctx, key, location); err != nil {
+  request.Status.ValidationErrors = append(
+    request.Status.ValidationErrors,
+    fmt.Sprintf("BSL %q not found", name))
+}`,
+    errors: [
+      { condition: 'BSL not found / read-only / unavailable', result: 'Validation error accumulated' },
+      { condition: 'VSL not found for provider', result: 'Validation error accumulated' },
+      { condition: 'Mixed old/new resource filter API', result: 'Validation error accumulated' },
+      { condition: 'Both LabelSelector and OrLabelSelectors set', result: 'Validation error accumulated' }
+    ],
+    handoffTo: null
+  },
+  {
+    id: 'validation-gate', ctrl: 'main', phase: 'internal', phaseLabel: 'Decision',
+    title: 'Validation Gate',
+    actionsPreview: 'Check errors → branch',
+    file: 'backup_controller.go:312-345',
+    actions: [
+      'Check len(ValidationErrors) > 0',
+      '→ YES: phase → FailedValidation (TERMINAL)',
+      '→ NO: phase → InProgress, set StartTimestamp',
+      'Patch backup CR with new phase',
+      'Add to backupTracker'
+    ],
+    description: 'First major branch point. If any validation errors were accumulated, the backup is terminal. Otherwise it transitions to InProgress and actual backup work begins.',
+    code: `// backup_controller.go:312-316
+if len(request.Status.ValidationErrors) > 0 {
+  request.Status.Phase = BackupPhaseFailedValidation
+} else {
+  request.Status.Phase = BackupPhaseInProgress
+  request.Status.StartTimestamp = &metav1.Time{Time: r.clock.Now()}
+}`,
+    errors: [], handoffTo: null
+  },
+  {
+    id: 'failed-validation', ctrl: 'main', phase: 'failed', phaseLabel: 'FailedValidation',
+    title: 'Failed Validation',
+    actionsPreview: 'TERMINAL — record metrics, stop',
+    file: 'backup_controller.go:339-345', terminal: true,
+    actions: [
+      'Register validation failure metrics',
+      'Set CompletionTimestamp',
+      'backupTracker.Delete()',
+      'Return — no further processing'
+    ],
+    description: 'Terminal state. The backup spec had errors (missing BSL, invalid filters, etc). No backup data is created. User must fix the spec and create a new Backup CR.',
+    code: '', errors: [], handoffTo: null
+  },
+  {
+    id: 'run-backup', ctrl: 'main', phase: 'inprogress', phaseLabel: 'InProgress',
+    title: 'Initialize Backup Run',
+    actionsPreview: 'Plugins, store, temp files',
+    file: 'backup_controller.go:746-800',
+    actions: [
+      'Create dual-mode logger (file + stdout)',
+      'Create temporary backup tar file',
+      'Create plugin manager, defer cleanup',
+      'Get BackupItemActionsV2 from plugins',
+      'Get ItemBlockActions from plugins',
+      'Get backup store from BSL',
+      'Check if backup name already exists in storage',
+      '→ If exists: phase → Failed, return error'
+    ],
+    description: 'runBackup() initializes the infrastructure for backup execution — plugins, storage, and temp files. If a backup with the same name already exists in object storage, it fails immediately.',
+    code: `// backup_controller.go:779-800
+backupStore, err := r.backupStoreGetter.Get(location, ...)
+if err != nil { return err }
+if exists, _ := backupStore.BackupExists(...); exists {
+  request.Status.Phase = BackupPhaseFailed
+  return errors.New("backup already exists in storage")
+}`,
+    errors: [
+      { condition: 'Temp file creation fails', result: 'Return error → Phase → Failed' },
+      { condition: 'Plugin manager error', result: 'Return error → Phase → Failed' },
+      { condition: 'Backup already exists in storage', result: 'Phase → Failed immediately' }
+    ],
+    handoffTo: null
+  },
+  {
+    id: 'backup-engine', ctrl: 'main', phase: 'inprogress', phaseLabel: 'InProgress',
+    title: 'Backup Engine',
+    actionsPreview: 'Collect items, build blocks, hooks',
+    file: 'backup/backup.go:272-756',
+    actions: [
+      'Create gzip/tar writers for archive',
+      'Resolve namespace includes/excludes',
+      'Resolve resource includes/excludes',
+      'Parse BackupResourceHookSpecs → ResourceHooks',
+      'Set up pod volume backupper',
+      'Create ItemCollector → query K8s API for all items',
+      'Build PVC-to-Pod cache',
+      'Start progress updater goroutine (1s interval)',
+      'Group items into BackupItemBlocks',
+      'For each block: pre-hooks → backup items → post-hooks',
+      'Wait for all pod volume backups',
+      'Back up associated CRDs'
+    ],
+    description: 'BackupWithResolvers() is the core engine. It discovers what to back up, groups items into blocks for hook coordination, and processes them through a worker pool.',
+    code: `// backup/backup.go:854-899 (per block)
+pods := identifyPods(block)
+handleItemBlockPreHooks(pods)
+for _, item := range block.items {
+  backupItem(item)  // → inclusion checks, BIA plugins,
+}                   //   PV snapshots, pod volumes, tar
+handleItemBlockPostHooks(pods)`,
+    errors: [
+      { condition: 'Pre-hook failure on pod', result: 'Pod skipped, processing continues' },
+      { condition: 'Individual item backup error', result: 'Error logged, item not in archive' },
+      { condition: 'Post-hook failure', result: 'Error logged, processing continues' },
+      { condition: 'PV snapshot failure', result: 'Error logged, backup continues' }
+    ],
+    handoffTo: null
+  },
+  {
+    id: 'per-item', ctrl: 'main', phase: 'internal', phaseLabel: 'Per-Item',
+    title: 'Back Up Each Item',
+    actionsPreview: 'Filter, dedup, execute actions, tar',
+    file: 'backup/item_backupper.go:190-360',
+    actions: [
+      'Check exclude-from-backup label → skip',
+      'Check namespace/resource excluded → skip',
+      'Check deletion timestamp → skip',
+      'Dedup check: already backed up? → skip',
+      'Execute BackupItemAction plugins (including CSI BIA)',
+      'Marshal to JSON, write to tar archive',
+      'Then: volume-specific handling based on resource type...'
+    ],
+    description: 'Each item is individually filtered, processed through BIA plugins, and serialized into the backup tar. For Pods and PVs, additional volume-specific handling runs (see volume path steps).',
+    code: `// backup/item_backupper.go:234-360
+// Volume path is determined per-resource:
+// Pod  → ShouldPerformFSBackup() → backupPodVolumes()
+// PVC  → CSI BIA plugin executes → VolumeSnapshot or DataUpload
+// PV   → takePVSnapshot() → native VolumeSnapshotter`,
+    errors: [
+      { condition: 'BIA plugin error', result: 'Error accumulated, item still backed up' },
+      { condition: 'Serialization error', result: 'Error logged, item skipped' }
+    ],
+    handoffTo: null
+  },
+  // ── Volume Decision Tree ──
+  {
+    id: 'vol-policy-check', ctrl: 'main', phase: 'internal', phaseLabel: 'Vol Policy',
+    title: 'Volume Policy Resolution',
+    actionsPreview: 'Match volume against policies',
+    file: 'internal/volumehelper/volume_policy_helper.go:126-291',
+    actions: [
+      'Check if ResourcePolicy ConfigMap is configured',
+      'Match volume against volumePolicies rules (first-match wins)',
+      'Match conditions: capacity, storageClass, CSI driver, NFS, pvcLabels, volumeType',
+      '→ Action = skip: no protection at all',
+      '→ Action = fs-backup: force Kopia file-system backup',
+      '→ Action = snapshot: force CSI or native snapshot',
+      '→ Action = custom: external plugin handles it',
+      '→ No match: fall through to legacy opt-in/opt-out logic'
+    ],
+    description: 'Volume policies (from a ConfigMap) have highest priority. They match on conditions like storageClass, capacity, CSI driver, or PVC labels. If matched, the action overrides all other logic. If no policy matches, legacy annotation-based logic applies.',
+    code: `// internal/resourcepolicies/resource_policies.go:40-51
+const (
+  Skip     = "skip"      // no protection
+  FSBackup = "fs-backup" // force Kopia
+  Snapshot = "snapshot"  // force CSI/native snapshot
+  Custom   = "custom"    // external plugin
+)
+
+// volume_policy_helper.go:126
+func (v *volumeHelperImpl) ShouldPerformSnapshot(obj, gr) {
+  action := v.volumePolicy.GetMatchAction(volumeData)
+  if action.Type == Snapshot { return true }
+  if action.Type != "" { return false }
+  // fall through to legacy...
+}`,
+    errors: [
+      { condition: 'ConfigMap not found', result: 'No policies applied, fall through to legacy logic' }
+    ],
+    handoffTo: null
+  },
+  {
+    id: 'vol-pod-fsb', ctrl: 'main', phase: 'internal', phaseLabel: 'Pod FSB',
+    title: 'Pod → File System Backup (Kopia)',
+    actionsPreview: 'ShouldPerformFSBackup → PVB CR',
+    file: 'pkg/podvolume/backupper.go:233-390',
+    actions: [
+      'For each volume in pod.Spec.Volumes:',
+      '  ShouldPerformFSBackup(volume, pod):',
+      '  → Exclude: HostPath, Secret, ConfigMap, Projected, DownwardAPI',
+      '  → If volume policy matched fs-backup → yes',
+      '  → Legacy: DefaultVolumesToFsBackup=false (opt-in):',
+      '    read annotation backup.velero.io/backup-volumes',
+      '  → Legacy: DefaultVolumesToFsBackup=true (opt-out):',
+      '    read annotation backup.velero.io/backup-volumes-excludes',
+      'Track opted-in volumes in podVolumeSnapshotTracker',
+      '  (prevents duplicate protection via native/CSI snapshot)',
+      'Validate uploader type: kopia or velero-block',
+      'Check pod is running, node-agent is running',
+      'Repository type: always Kopia (Restic removed)',
+      'Per-volume: skip hostPath, skip block volumes',
+      'Create PodVolumeBackup CR per volume',
+      '→ Node agent picks up PVB, runs Kopia uploader'
+    ],
+    description: 'When a Pod is backed up, eligible volumes are copied file-by-file using Kopia. Volumes opted in (via annotation or DefaultVolumesToFsBackup) get a PodVolumeBackup CR. The node-agent DaemonSet picks it up and runs the Kopia uploader to copy data to the BSL repository. Restic has been fully removed.',
+    code: `// podvolume/backupper.go:278 — always Kopia
+func getRepositoryType() string {
+  return velerov1api.BackupRepositoryTypeKopia
+}
+
+// podvolume/backupper.go:367
+pvb := &velerov1api.PodVolumeBackup{
+  Spec: velerov1api.PodVolumeBackupSpec{
+    Pod:          podRef,
+    Volume:       volumeName,
+    UploaderType: uploaderType,
+    BackupStorageLocation: bslName,
+  },
+}`,
+    errors: [
+      { condition: 'Pod not running', result: 'FSB skipped for all volumes on this pod' },
+      { condition: 'Node-agent not on pod node', result: 'FSB skipped, error logged' },
+      { condition: 'HostPath volume', result: 'Skipped (not portable)' },
+      { condition: 'Block volume mode', result: 'Skipped (not supported by FSB)' }
+    ],
+    handoffTo: null
+  },
+  {
+    id: 'vol-csi-snapshot', ctrl: 'main', phase: 'internal', phaseLabel: 'CSI Snap',
+    title: 'PVC → CSI VolumeSnapshot',
+    actionsPreview: 'CSI BIA → VolumeSnapshot CR',
+    file: 'pkg/backup/actions/csi/pvc_action.go:282-459',
+    actions: [
+      'CSI BIA plugin (velero.io/csi-pvc-backupper) executes on PVC',
+      'Gate: EnableCSI feature flag must be true',
+      'Gate: ShouldPerformSnapshot() must return true',
+      'Validate PVC has StorageClass',
+      'Get PV for PVC; verify pv.Spec.CSI != nil',
+      '→ If not CSI: set SkippedNoCSIPVAnnotation, return',
+      'Find VolumeSnapshotClass for CSI driver',
+      'Check for VolumeGroupSnapshot label → group snapshot path',
+      'Create VolumeSnapshot CR pointing to PVC',
+      'Wait for VolumeSnapshotContent readiness (CSISnapshotTimeout)',
+      '→ Then: SnapshotMoveData decision (see next steps)'
+    ],
+    description: 'For CSI-backed PVCs, the CSI BackupItemAction plugin creates a Kubernetes VolumeSnapshot CR. The CSI driver creates the actual snapshot. What happens next depends on SnapshotMoveData — the snapshot either stays in-cluster or gets moved to object storage via a data mover.',
+    code: `// pvc_action.go:341-348
+vsRef, err := p.getVolumeSnapshotReference(
+  backup, pvc, storageClass, ...)
+// Wait for snapshot to be ready
+vsc, err := waitForVolumeSnapshotContent(
+  vsRef, csiSnapshotTimeout, ...)`,
+    errors: [
+      { condition: 'EnableCSI not set', result: 'CSI BIA skipped entirely' },
+      { condition: 'PV is not CSI-backed', result: 'PVC annotated as skipped, falls through to native' },
+      { condition: 'No VolumeSnapshotClass for driver', result: 'Error logged, snapshot not created' },
+      { condition: 'CSISnapshotTimeout exceeded', result: 'Error logged, partial failure' }
+    ],
+    handoffTo: null
+  },
+  {
+    id: 'vol-csi-local', ctrl: 'main', phase: 'internal', phaseLabel: 'CSI Local',
+    title: 'CSI: Keep Snapshot In-Cluster',
+    actionsPreview: 'SnapshotMoveData=false → persist VS',
+    file: 'pkg/backup/actions/csi/pvc_action.go:432-442',
+    actions: [
+      'SnapshotMoveData is false (or nil)',
+      'Adjust PVC request size to match VSC restore size',
+      'Return VolumeSnapshot as additionalItem to back up',
+      'VolumeSnapshot + VolumeSnapshotContent persist in tar',
+      'On restore: VSC used as data source for new PVC'
+    ],
+    description: 'When SnapshotMoveData is false, the CSI VolumeSnapshot stays in the cluster. The VolumeSnapshot and VolumeSnapshotContent CRs are included in the backup tar. During restore, the VSC is used as a pre-provisioned data source.',
+    code: `// pvc_action.go:432-442
+// SnapshotMoveData is false — keep snapshot in cluster
+additionalItems = append(additionalItems,
+  velero.ResourceIdentifier{
+    GroupResource: volumeSnapshotGR,
+    Namespace:     vs.Namespace,
+    Name:          vs.Name,
+  })`,
+    errors: [],
+    handoffTo: null
+  },
+  {
+    id: 'vol-csi-datamover', ctrl: 'main', phase: 'internal', phaseLabel: 'Data Mover',
+    title: 'CSI: Kopia Data Mover',
+    actionsPreview: 'SnapshotMoveData=true → DataUpload',
+    file: 'pkg/backup/actions/csi/pvc_action.go:375-431',
+    actions: [
+      'SnapshotMoveData is true',
+      'Create DataUpload CR with SnapshotType: CSI',
+      'DataUpload points to the VolumeSnapshot',
+      'Generate operationID for async tracking',
+      'Set DataUploadNameAnnotation on PVC',
+      '→ ASYNC: Node agent picks up DataUpload:',
+      '  1. Exposes snapshot as a volume on the node',
+      '  2. Runs Kopia uploader to copy data to BSL',
+      '  3. VolumeSnapshot is transient (cleaned up after)',
+      'Operations controller polls DataUpload progress',
+      'On restore: DataDownload CR re-hydrates volume from BSL'
+    ],
+    description: 'When SnapshotMoveData is true, the CSI snapshot is a temporary stepping stone. A DataUpload CR is created, which the node-agent picks up asynchronously. It mounts the snapshot volume and uses Kopia to upload the data to the backup storage location. This makes the backup portable across clusters.',
+    code: `// pvc_action.go:390-431
+du := newDataUpload(backup, pvc, vs, dataMoverConfig)
+du.Spec.SnapshotType = velerov2alpha1.SnapshotTypeCSI
+du.Spec.CSISnapshot = &velerov2alpha1.CSISnapshotSpec{
+  VolumeSnapshot:    vs.Name,
+  StorageClass:      pvc.Spec.StorageClassName,
+  SnapshotClass:     vs.Spec.VolumeSnapshotClassName,
+}
+// This creates an async operation tracked by ops controller`,
+    errors: [
+      { condition: 'Node agent not running', result: 'DataUpload stays pending, eventually times out' },
+      { condition: 'Kopia upload fails', result: 'DataUpload marked failed, operation tracked as error' },
+      { condition: 'ItemOperationTimeout exceeded', result: 'Operations controller calls Cancel()' }
+    ],
+    handoffTo: null
+  },
+  {
+    id: 'vol-native-snapshot', ctrl: 'main', phase: 'internal', phaseLabel: 'Native Snap',
+    title: 'PV → Native Cloud Snapshot',
+    actionsPreview: 'VolumeSnapshotter → CreateSnapshot()',
+    file: 'backup/item_backupper.go:577-732',
+    actions: [
+      'ShouldPerformSnapshot(pv) must return true',
+      'Skip if CSI-backed PV and EnableCSI is true (handled by CSI BIA)',
+      'Skip if resource policy action is Skip',
+      'Detect availability zone from PV labels',
+      'For each VolumeSnapshotLocation:',
+      '  Get VolumeSnapshotter plugin for provider',
+      '  Call GetVolumeID(pv) — does this plugin recognize the PV?',
+      '  → First match wins',
+      'Call GetVolumeInfo() → volumeType, IOPS',
+      'Call CreateSnapshot(volumeID, zone, tags)',
+      'Record in backup VolumeSnapshots list',
+      '→ Providers: AWS EBS, GCP PD, Azure Disk (external plugins)'
+    ],
+    description: 'For non-CSI PersistentVolumes (or when CSI is disabled), Velero uses VolumeSnapshotter plugins to create cloud-native snapshots. Each plugin knows how to extract a volume ID from a PV and call the cloud API to snapshot it. The snapshot ID is stored in the backup metadata for restore.',
+    code: `// item_backupper.go:667-728
+for _, sl := range ib.backupRequest.SnapshotLocations {
+  snapshotter := getSnapshotter(sl.Spec.Provider)
+  volumeID, _ := snapshotter.GetVolumeID(obj)
+  if volumeID != "" {
+    volumeType, iops, _ := snapshotter.GetVolumeInfo(volumeID, zone)
+    snapshotID, _ := snapshotter.CreateSnapshot(volumeID, zone, tags)
+    // record snapshot
+    break
+  }
+}`,
+    errors: [
+      { condition: 'No VolumeSnapshotter recognizes the PV', result: 'PV tracked as skipped, no snapshot' },
+      { condition: 'CreateSnapshot API failure', result: 'Error logged, backup continues' },
+      { condition: 'SnapshotMoveData=true with native snapshot', result: 'Warning logged (not supported), snapshot taken anyway' }
+    ],
+    handoffTo: null
+  },
+  {
+    id: 'vol-skip', ctrl: 'main', phase: 'internal', phaseLabel: 'Skip',
+    title: 'Volume Skipped',
+    actionsPreview: 'No protection for this volume',
+    file: 'backup/pv_skip_tracker.go:53-58',
+    actions: [
+      'Volume tracked in SkippedPVTracker with reason:',
+      '  podvolume — skipped by FSB path (not eligible)',
+      '  csiSnapshot — skipped by CSI path (not CSI-backed)',
+      '  volumeSnapshot — no VolumeSnapshotter recognized it',
+      '  any — generic skip (policy or annotation)',
+      'Volume data NOT included in backup',
+      'PV metadata still serialized to tar (resource is backed up)',
+      'On restore: PV restored as empty (no data recovery)'
+    ],
+    description: 'When no volume protection path applies — no matching policy, not opted in to FSB, no compatible snapshotter, or explicitly skipped — the volume has no data protection. The PV resource itself is still backed up as metadata, but restoring it will not recover the volume data.',
+    code: `// pv_skip_tracker.go:53-58
+const (
+  podVolumeApproach    = "podvolume"
+  csiSnapshotApproach  = "csiSnapshot"
+  volumeSnapshotApproach = "volumeSnapshot"
+  anyApproach          = "any"
+)`,
+    errors: [],
+    handoffTo: null
+  },
+  {
+    id: 'determine-phase', ctrl: 'main', phase: 'internal', phaseLabel: 'Decision',
+    title: 'Determine Result Phase',
+    actionsPreview: 'Errors × async ops → next phase',
+    file: 'backup_controller.go:846-890',
+    actions: [
+      'Count fatal errors, logged errors, in-progress async ops',
+      '→ Fatal errors: phase → Failed (TERMINAL)',
+      '→ Errors + async ops: phase → WaitingPartiallyFailed',
+      '→ Errors + no async: phase → FinalizingPartiallyFailed',
+      '→ No errors + async ops: phase → WaitingForPluginOps',
+      '→ No errors + no async: phase → Finalizing',
+      'Persist backup artifacts to object storage',
+      'Patch backup CR with result phase',
+    ],
+    description: 'Second major branch. The combination of errors and pending async operations determines which controller handles the backup next. The backup controller\'s job is done — it writes the phase and another controller picks it up.',
+    code: `// backup_controller.go:846-861
+if len(fatalErrs) > 0 {
+  phase = BackupPhaseFailed
+} else if errCount > 0 && inProgressOps > 0 {
+  phase = WaitingForPluginOpsPartiallyFailed
+} else if errCount > 0 {
+  phase = FinalizingPartiallyFailed
+} else if inProgressOps > 0 {
+  phase = WaitingForPluginOperations
+} else {
+  phase = Finalizing
+}`,
+    errors: [], handoffTo: null
+  },
+  {
+    id: 'fatal-error', ctrl: 'main', phase: 'failed', phaseLabel: 'Failed',
+    title: 'Fatal Error',
+    actionsPreview: 'TERMINAL — unrecoverable',
+    file: 'backup_controller.go:362-365', terminal: true,
+    actions: [
+      'Set FailureReason from error message',
+      'Set CompletionTimestamp',
+      'Register failure metrics',
+      'backupTracker.Delete()'
+    ],
+    description: 'Terminal state from the backup controller. Common causes: plugin crash, storage unreachable, backup name collision. No retry — user must create a new backup.',
+    code: '', errors: [], handoffTo: null
+  },
+
+  // ── Operations Controller ──
+  {
+    id: 'poll-ops', ctrl: 'ops', phase: 'waiting', phaseLabel: 'WaitingForPluginOps',
+    title: 'Poll Async Operations',
+    actionsPreview: 'Query each plugin, check timeout',
+    file: 'backup_operations_controller.go:109-386',
+    actions: [
+      'Periodic reconciler fires every 10 seconds',
+      'Fetch backup, verify phase is WaitingForPluginOps*',
+      'Get BSL and backup store',
+      'Download operations list from object storage',
+      'For each in-progress operation:',
+      '  → Query plugin.Progress(operationID)',
+      '  → If plugin error: mark operation Failed',
+      '  → If completed + error: mark Failed',
+      '  → If completed + success: mark Completed',
+      '  → If past ItemOperationTimeout: Cancel(), mark Failed',
+      'If any new errors: phase → WaitingPartiallyFailed',
+      'Upload updated operations JSON'
+    ],
+    description: 'The operations controller is a poller, not event-driven. Every 10 seconds it checks all in-progress async operations (like CSI data movers) by querying the plugins that started them.',
+    code: `// backup_operations_controller.go:289-386
+for _, op := range operations {
+  if op.Status.Phase == "InProgress" {
+    progress, err := plugin.Progress(op.Spec.OperationID)
+    if err != nil {
+      op.Status.Phase = "Failed"
+    } else if progress.Completed {
+      op.Status.Phase = "Completed"
+    } else if time.Since(op.Status.Created) > timeout {
+      plugin.Cancel(op.Spec.OperationID)
+      op.Status.Phase = "Failed"
+    }
+  }
+}`,
+    errors: [
+      { condition: 'BSL not found', result: 'Phase → PartiallyFailed (terminal)' },
+      { condition: 'BSL is read-only', result: 'Phase → PartiallyFailed (terminal)' },
+      { condition: 'Plugin returns error on Progress()', result: 'Operation marked Failed' },
+      { condition: 'Operation exceeds timeout', result: 'Cancel() called, operation Failed' }
+    ],
+    handoffTo: null
+  },
+  {
+    id: 'ops-complete', ctrl: 'ops', phase: 'waiting', phaseLabel: 'WaitingForPluginOps',
+    title: 'All Operations Done',
+    actionsPreview: 'Phase → Finalizing*, hand off',
+    file: 'backup_operations_controller.go:205-219',
+    actions: [
+      'Check: any operations still InProgress?',
+      '→ If yes: continue polling (re-reconcile in 10s)',
+      '→ If no: transition phase:',
+      '  WaitingForPluginOps → Finalizing',
+      '  WaitingPartiallyFailed → FinalizingPartiallyFailed',
+      'Upload updated operations JSON to storage',
+      'Patch backup CR',
+    ],
+    description: 'When all async operations are complete (or failed/timed out), the operations controller transitions the phase to Finalizing or FinalizingPartiallyFailed. This triggers the finalizer controller.',
+    code: `// backup_operations_controller.go:205-213
+if !anyInProgress {
+  switch backup.Status.Phase {
+  case WaitingForPluginOperations:
+    backup.Status.Phase = Finalizing
+  case WaitingForPluginOperationsPartiallyFailed:
+    backup.Status.Phase = FinalizingPartiallyFailed
+  }
+}`,
+    errors: [],
+    handoffTo: { from: 'Operations Controller', fromCtrl: 'ops', to: 'Finalizer Controller', toCtrl: 'final', trigger: 'Watch predicate: phase == Finalizing*', phase: 'Finalizing' }
+  },
+
+  // ── Finalizer Controller ──
+  {
+    id: 'finalize-pickup', ctrl: 'final', phase: 'finalizing', phaseLabel: 'Finalizing',
+    title: 'Pick Up for Finalization',
+    actionsPreview: 'Fetch backup, get store',
+    file: 'backup_finalizer_controller.go:89-158',
+    actions: [
+      'Watch predicate fires: phase is Finalizing or FinalizingPartiallyFailed',
+      'Fetch backup CR',
+      'Get BSL and backup store',
+      'Download item operations list from storage'
+    ],
+    description: 'The finalizer controller picks up backups that are ready for finalization — either directly from the backup controller (no async ops) or from the operations controller (async ops complete).',
+    code: `// backup_finalizer_controller.go:108-114
+switch backup.Status.Phase {
+case BackupPhaseFinalizing,
+     BackupPhaseFinalizingPartiallyFailed:
+  // proceed with finalization
+default:
+  return ctrl.Result{}, nil
+}`,
+    errors: [], handoffTo: null
+  },
+  {
+    id: 'process-async-results', ctrl: 'final', phase: 'finalizing', phaseLabel: 'Finalizing',
+    title: 'Process Async Results',
+    actionsPreview: 'Re-process items from async ops',
+    file: 'backup_finalizer_controller.go:167-203',
+    actions: [
+      'If operations exist:',
+      '  → Download backup tarball from object storage',
+      '  → Call FinalizeBackup() on the backup engine',
+      '  → Process PostOperationItems from each async op',
+      '  → Re-run BIA plugins on modified items',
+      '  → Build new tarball with updated items',
+      'If no operations: skip this step'
+    ],
+    description: 'If async operations produced PostOperationItems (e.g., a data mover created a DataUpload resource), the finalizer re-processes those items through the backup engine to include them in the archive.',
+    code: `// backup_finalizer_controller.go:167-203
+if len(operations) > 0 {
+  backupFile, err := downloadBackup(backupStore, ...)
+  backupper.FinalizeBackup(log, request, backupFile,
+    actions, pluginManager)
+}`,
+    errors: [
+      { condition: 'Download tarball fails', result: 'Error logged, finalization continues without re-processing' },
+      { condition: 'FinalizeBackup error', result: 'Error logged, original tarball preserved' }
+    ],
+    handoffTo: null
+  },
+  {
+    id: 'mark-complete', ctrl: 'final', phase: 'completed', phaseLabel: 'Completed',
+    title: 'Mark Complete & Upload',
+    actionsPreview: 'Phase → Completed, upload artifacts',
+    file: 'backup_finalizer_controller.go:205-237', terminal: true,
+    actions: [
+      'Determine final phase:',
+      '  Finalizing → Completed',
+      '  FinalizingPartiallyFailed → PartiallyFailed',
+      'Set CompletionTimestamp',
+      'Update CSI snapshot completion count',
+      'Record success/partial-failure metrics',
+      'Upload updated backup metadata JSON',
+      'Upload updated backup contents tarball',
+      'Patch backup CR with final phase',
+      'backupTracker.Delete()'
+    ],
+    description: 'The finalizer controller writes the terminal phase, uploads all artifacts, and cleans up the backup tracker. The backup is now available for restore operations.',
+    code: `// backup_finalizer_controller.go:205-237
+switch backup.Status.Phase {
+case BackupPhaseFinalizing:
+  backup.Status.Phase = BackupPhaseCompleted
+case BackupPhaseFinalizingPartiallyFailed:
+  backup.Status.Phase = BackupPhasePartiallyFailed
+}
+backup.Status.CompletionTimestamp = &metav1.Time{Time: clock.Now()}
+backupStore.PutBackup(backup.Name, metadata, contents, log, ...)`,
+    errors: [
+      { condition: 'Upload metadata fails', result: 'Error logged but phase still transitions' },
+      { condition: 'Upload tarball fails', result: 'Error logged but phase still transitions' }
+    ],
+    handoffTo: null
+  }
+];
+
+const STEP_MAP = {};
+STEPS.forEach(s => STEP_MAP[s.id] = s);
+
+const STEPS_BY_CTRL = { queue: [], main: [], ops: [], final: [] };
+STEPS.forEach(s => STEPS_BY_CTRL[s.ctrl].push(s));
+
+const CTRL_META = {
+  queue: { color: '#22d3ee', label: 'Queue Controller' },
+  main:  { color: '#6c8cff', label: 'Backup Controller' },
+  ops:   { color: '#c084fc', label: 'Operations Controller' },
+  final: { color: '#fb923c', label: 'Finalizer Controller' }
+};
+
+// ─── SIMULATION PATHS ───
+// handoffBanner: id of the handoff-banner element to show, plus the phase label to display
+const SIM_PATHS = {
+  'happy': {
+    label: 'Happy Path — No async ops, no errors',
+    steps: [
+      { id: 'receive-new' },
+      { id: 'assign-queue-pos' },
+      { id: 'concurrency-check' },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
+      { id: 'pickup-ready' },
+      { id: 'validate' },
+      { id: 'validation-gate' },
+      { id: 'run-backup' },
+      { id: 'backup-engine' },
+      { id: 'per-item' },
+      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'Finalizing' } },
+      { id: 'finalize-pickup' },
+      { id: 'process-async-results' },
+      { id: 'mark-complete' }
+    ]
+  },
+  'validation-fail': {
+    label: 'Validation Failure — BSL missing or invalid spec',
+    steps: [
+      { id: 'receive-new' },
+      { id: 'assign-queue-pos' },
+      { id: 'concurrency-check' },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
+      { id: 'pickup-ready' },
+      { id: 'validate' },
+      { id: 'validation-gate' },
+      { id: 'failed-validation' }
+    ]
+  },
+  'partial-fail': {
+    label: 'Partial Failure — Some items failed, no async ops',
+    steps: [
+      { id: 'receive-new' },
+      { id: 'assign-queue-pos' },
+      { id: 'concurrency-check' },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
+      { id: 'pickup-ready' },
+      { id: 'validate' },
+      { id: 'validation-gate' },
+      { id: 'run-backup' },
+      { id: 'backup-engine' },
+      { id: 'per-item' },
+      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'FinalizingPartiallyFailed' } },
+      { id: 'finalize-pickup' },
+      { id: 'process-async-results' },
+      { id: 'mark-complete' }
+    ]
+  },
+  'fatal': {
+    label: 'Fatal Error — Plugin crash or storage failure',
+    steps: [
+      { id: 'receive-new' },
+      { id: 'assign-queue-pos' },
+      { id: 'concurrency-check' },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
+      { id: 'pickup-ready' },
+      { id: 'validate' },
+      { id: 'validation-gate' },
+      { id: 'run-backup' },
+      { id: 'backup-engine' },
+      { id: 'per-item' },
+      { id: 'determine-phase' },
+      { id: 'fatal-error' }
+    ]
+  },
+  'async': {
+    label: 'CSI Snapshot (in-cluster) — VolumeSnapshot stays local',
+    steps: [
+      { id: 'receive-new' },
+      { id: 'assign-queue-pos' },
+      { id: 'concurrency-check' },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
+      { id: 'pickup-ready' },
+      { id: 'validate' },
+      { id: 'validation-gate' },
+      { id: 'run-backup' },
+      { id: 'backup-engine' },
+      { id: 'per-item' },
+      { id: 'vol-policy-check' },
+      { id: 'vol-csi-snapshot' },
+      { id: 'vol-csi-local' },
+      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'Finalizing' } },
+      { id: 'finalize-pickup' },
+      { id: 'process-async-results' },
+      { id: 'mark-complete' }
+    ]
+  },
+  'kopia-fsb': {
+    label: 'Kopia File System Backup — Pod volumes via node-agent',
+    steps: [
+      { id: 'receive-new' },
+      { id: 'assign-queue-pos' },
+      { id: 'concurrency-check' },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
+      { id: 'pickup-ready' },
+      { id: 'validate' },
+      { id: 'validation-gate' },
+      { id: 'run-backup' },
+      { id: 'backup-engine' },
+      { id: 'per-item' },
+      { id: 'vol-policy-check' },
+      { id: 'vol-pod-fsb' },
+      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'Finalizing' } },
+      { id: 'finalize-pickup' },
+      { id: 'process-async-results' },
+      { id: 'mark-complete' }
+    ]
+  },
+  'datamover': {
+    label: 'CSI + Data Mover — Snapshot → Kopia upload to BSL',
+    steps: [
+      { id: 'receive-new' },
+      { id: 'assign-queue-pos' },
+      { id: 'concurrency-check' },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
+      { id: 'pickup-ready' },
+      { id: 'validate' },
+      { id: 'validation-gate' },
+      { id: 'run-backup' },
+      { id: 'backup-engine' },
+      { id: 'per-item' },
+      { id: 'vol-policy-check' },
+      { id: 'vol-csi-snapshot' },
+      { id: 'vol-csi-datamover' },
+      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-ops', phase: 'WaitingForPluginOps' } },
+      { id: 'poll-ops' },
+      { id: 'ops-complete', handoffBanner: { el: 'handoff-ops-final', phase: 'Finalizing' } },
+      { id: 'finalize-pickup' },
+      { id: 'process-async-results' },
+      { id: 'mark-complete' }
+    ]
+  },
+  'native-snap': {
+    label: 'Native Cloud Snapshot — AWS EBS / GCP PD / Azure Disk',
+    steps: [
+      { id: 'receive-new' },
+      { id: 'assign-queue-pos' },
+      { id: 'concurrency-check' },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
+      { id: 'pickup-ready' },
+      { id: 'validate' },
+      { id: 'validation-gate' },
+      { id: 'run-backup' },
+      { id: 'backup-engine' },
+      { id: 'per-item' },
+      { id: 'vol-policy-check' },
+      { id: 'vol-native-snapshot' },
+      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'Finalizing' } },
+      { id: 'finalize-pickup' },
+      { id: 'process-async-results' },
+      { id: 'mark-complete' }
+    ]
+  }
+};
+
+let selectedStep = null;
+let simState = null;
+
+// ─── RENDER ───
+
+function renderLanes() {
+  for (const [ctrl, steps] of Object.entries(STEPS_BY_CTRL)) {
+    const container = document.getElementById(`lane-content-${ctrl}`);
+    let html = '';
+    steps.forEach((step, i) => {
+      if (i > 0) {
+        html += `<div class="arrow-right" id="arrow-${step.id}"></div>`;
+      }
+      const isVol = step.id.startsWith('vol-');
+      html += `
+        <div class="step${isVol ? ' vol-path' : ''}" id="step-${step.id}" data-phase="${step.phase}"
+             onclick="selectStep('${step.id}')">
+          <div class="step-phase">${step.phaseLabel}</div>
+          <div class="step-title">${step.title}</div>
+          <div class="step-actions">${step.actionsPreview}</div>
+        </div>`;
+    });
+    container.innerHTML = html;
+  }
+}
+
+function selectStep(id) {
+  document.querySelectorAll('.step.selected').forEach(el => el.classList.remove('selected'));
+  selectedStep = id;
+  const step = STEP_MAP[id];
+  if (!step) return;
+  document.getElementById(`step-${id}`).classList.add('selected');
+  showDetail(step);
+}
+
+function showDetail(step) {
+  const meta = CTRL_META[step.ctrl];
+  document.getElementById('emptyDetail').style.display = 'none';
+  const el = document.getElementById('detailContent');
+  el.style.display = 'block';
+
+  let html = `
+    <div class="detail-header">
+      <div class="detail-ctrl-badge" style="background:${meta.color}22;color:${meta.color}">${meta.label}</div>
+      <div class="detail-title">${step.title}</div>
+      <div class="detail-file">${step.file}</div>
+    </div>
+    <div class="detail-body">
+      <div class="detail-section">
+        <h3>Description</h3>
+        <p>${step.description}</p>
+      </div>
+      <div class="detail-section">
+        <h3>Controller Actions</h3>
+        <ol class="action-list">
+          ${step.actions.map(a => `<li>${esc(a)}</li>`).join('')}
+        </ol>
+      </div>`;
+
+  if (step.handoffTo) {
+    const fromMeta = CTRL_META[step.handoffTo.fromCtrl];
+    const toMeta = CTRL_META[step.handoffTo.toCtrl];
+    html += `
+      <div class="detail-section">
+        <h3>Controller Handoff</h3>
+        <div class="handoff-box">
+          <div class="from-to">
+            <span style="color:${fromMeta.color}">${step.handoffTo.from}</span>
+            <span class="arr">→</span>
+            <span style="color:${toMeta.color}">${step.handoffTo.to}</span>
+          </div>
+          <div class="trigger">Trigger: ${step.handoffTo.trigger}</div>
+        </div>
+      </div>`;
+  }
+
+  if (step.code) {
+    html += `
+      <div class="detail-section">
+        <h3>Source</h3>
+        <div class="code-block">${esc(step.code)}</div>
+      </div>`;
+  }
+
+  if (step.errors && step.errors.length > 0) {
+    html += `
+      <div class="detail-section">
+        <h3>Error Handling</h3>
+        <ul class="error-list">
+          ${step.errors.map(e => `<li><strong>${esc(e.condition)}</strong> — ${esc(e.result)}</li>`).join('')}
+        </ul>
+      </div>`;
+  }
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── HANDOFF BANNERS ───
+
+function showHandoffBanner(bannerId, phaseText) {
+  const el = document.getElementById(bannerId);
+  if (!el) return;
+  el.classList.add('visible');
+  const phaseEl = document.getElementById(bannerId + '-phase');
+  if (phaseEl) phaseEl.textContent = phaseText;
+}
+
+function hideAllHandoffBanners() {
+  document.querySelectorAll('.handoff-banner').forEach(el => el.classList.remove('visible'));
+}
+
+// ─── SIMULATION ───
+
+function getSpeed() {
+  const v = parseInt(document.getElementById('speedSlider').value);
+  return [1800, 1200, 800, 500, 300][v - 1];
+}
+
+function simulate(pathKey, btnEl) {
+  resetSim();
+  const path = SIM_PATHS[pathKey];
+  if (!path) return;
+
+  simState = { pathKey, stepIndex: -1, timer: null, paused: false };
+
+  document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
+  if (btnEl) btnEl.classList.add('active');
+  document.getElementById('stepBtn').disabled = false;
+  document.getElementById('pauseBtn').disabled = false;
+  document.getElementById('pauseBtn').textContent = 'Pause';
+
+  document.getElementById('simDot').classList.add('live');
+  document.getElementById('currentPhaseText').textContent = path.label;
+
+  advanceSim();
+}
+
+function showSimStep() {
+  if (!simState) return;
+  const path = SIM_PATHS[simState.pathKey];
+  const simStep = path.steps[simState.stepIndex];
+  const step = STEP_MAP[simStep.id];
+
+  // Mark previous steps visited
+  for (let i = 0; i < simState.stepIndex; i++) {
+    const prevEl = document.getElementById(`step-${path.steps[i].id}`);
+    if (prevEl) {
+      prevEl.classList.remove('sim-current');
+      prevEl.classList.add('sim-visited');
+    }
+  }
+
+  // Mark current
+  const stepEl = document.getElementById(`step-${simStep.id}`);
+  if (stepEl) {
+    stepEl.classList.add('sim-current', 'sim-active');
+    setTimeout(() => stepEl.classList.remove('sim-active'), 600);
+    stepEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }
+
+  // Highlight active lane
+  document.querySelectorAll('.lane').forEach(l => l.classList.remove('active-lane'));
+  document.getElementById(`lane-${step.ctrl}`).classList.add('active-lane');
+
+  // Phase indicator
+  const phaseText = step.terminal
+    ? `${CTRL_META[step.ctrl].label} → ${step.phaseLabel} (TERMINAL)`
+    : `${CTRL_META[step.ctrl].label} → ${step.title}`;
+  document.getElementById('currentPhaseText').textContent = phaseText;
+
+  // Show handoff banner if this step triggers one
+  if (simStep.handoffBanner) {
+    showHandoffBanner(simStep.handoffBanner.el, simStep.handoffBanner.phase);
+  }
+
+  // Show detail
+  selectStep(simStep.id);
+}
+
+function advanceSim() {
+  if (!simState) return;
+  const path = SIM_PATHS[simState.pathKey];
+  simState.stepIndex++;
+
+  if (simState.stepIndex >= path.steps.length) {
+    document.getElementById('currentPhaseText').textContent = path.label + ' — Complete';
+    document.getElementById('simDot').classList.remove('live');
+    document.getElementById('stepBtn').disabled = true;
+    document.getElementById('pauseBtn').disabled = true;
+    simState = null;
+    return;
+  }
+
+  showSimStep();
+
+  if (!simState.paused) {
+    simState.timer = setTimeout(advanceSim, getSpeed());
+  }
+}
+
+function togglePause() {
+  if (!simState) return;
+  simState.paused = !simState.paused;
+  const btn = document.getElementById('pauseBtn');
+  if (simState.paused) {
+    clearTimeout(simState.timer);
+    simState.timer = null;
+    btn.textContent = 'Play';
+    btn.classList.add('active');
+  } else {
+    btn.textContent = 'Pause';
+    btn.classList.remove('active');
+    simState.timer = setTimeout(advanceSim, getSpeed());
+  }
+}
+
+function stepForward() {
+  if (!simState) return;
+  if (!simState.paused) {
+    simState.paused = true;
+    clearTimeout(simState.timer);
+    simState.timer = null;
+    document.getElementById('pauseBtn').textContent = 'Play';
+    document.getElementById('pauseBtn').classList.add('active');
+  }
+  advanceSim();
+}
+
+function resetSim() {
+  if (simState && simState.timer) clearTimeout(simState.timer);
+  simState = null;
+
+  document.querySelectorAll('.step').forEach(el => {
+    el.classList.remove('sim-current', 'sim-visited', 'sim-active', 'selected');
+  });
+  document.querySelectorAll('.lane').forEach(l => l.classList.remove('active-lane'));
+  document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
+
+  hideAllHandoffBanners();
+
+  document.getElementById('simDot').classList.remove('live');
+  document.getElementById('currentPhaseText').textContent = 'Select a simulation or click a step';
+  document.getElementById('stepBtn').disabled = true;
+  document.getElementById('pauseBtn').disabled = true;
+  document.getElementById('pauseBtn').textContent = 'Pause';
+  document.getElementById('pauseBtn').classList.remove('active');
+  document.getElementById('emptyDetail').style.display = 'flex';
+  document.getElementById('detailContent').style.display = 'none';
+}
+
+// ─── INIT ───
+renderLanes();
+</script>
+</body>
+</html>

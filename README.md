@@ -13,7 +13,7 @@ Built from reading the Velero source at [`vmware-tanzu/velero@b74f8c9`](https://
 
 ## Views
 
-### [Controller Flow](https://joeavaikath.github.io/velero-backup-viz/index.html)
+### [Controller Flow](https://joeavaikath.github.io/velero-backup-viz/flow.html)
 
 Swim-lane diagram showing how a Backup CR moves between Velero's four controllers:
 
@@ -57,7 +57,8 @@ Gantt-style chart showing what runs in parallel during a backup:
 Three static HTML files, zero dependencies. All styling and logic is inline. Runs from `file://` or any static host.
 
 ```
-index.html          # Controller flow (swim lanes + simulations)
+index.html          # Landing page — what is Velero, what the views cover
+flow.html           # Controller flow (swim lanes + simulations)
 decision-tree.html  # Volume protection wizard
 timeline.html       # Concurrent activity Gantt chart
 ARCHITECTURE.md     # Machine-readable reference
