@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Velero — Backup Timeline</title>
+<style>
+:root {
+  --bg: #0f1117; --surface: #161922; --surface-hover: #1e2130;
+  --border: #282c3a; --text: #e1e4ed; --text-muted: #7a7f92; --text-dim: #4e5264;
+  --green: #4ade80; --green-dim: #16503a;
+  --red: #f87171; --red-dim: #5c1e1e;
+  --blue: #6c8cff; --blue-dim: #2a3766;
+  --purple: #c084fc; --purple-dim: #3d2266;
+  --orange: #fb923c; --orange-dim: #4d2e12;
+  --cyan: #22d3ee; --cyan-dim: #0c3d47;
+  --yellow: #facc15; --yellow-dim: #5c4d10;
+  --label-w: 200px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+nav{height:44px;display:flex;align-items:center;padding:0 24px;border-bottom:1px solid var(--border);gap:6px;flex-shrink:0}
+.nav-tab{font-size:12px;padding:6px 14px;border-radius:6px;text-decoration:none;color:var(--text-muted);border:1px solid transparent;transition:all .15s}
+.nav-tab:hover{color:var(--text);background:var(--surface)}
+.nav-tab.active{background:var(--blue-dim);border-color:var(--blue);color:var(--blue)}
+nav .title{font-size:14px;font-weight:600;margin-right:16px}
+
+.layout{display:flex;flex:1;overflow:hidden}
+.tl-scroll{flex:1;overflow:auto;padding:20px 24px 80px}
+.detail-panel{width:380px;border-left:1px solid var(--border);background:var(--surface);overflow-y:auto;flex-shrink:0;padding:20px}
+
+.tl-header{display:flex;align-items:flex-start;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+.tl-header h2{font-size:16px;font-weight:600}
+.sc-btns{display:flex;gap:6px;flex-wrap:wrap}
+.sc-btn{font-size:11px;padding:5px 12px;border-radius:5px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text-muted);font-family:inherit;transition:all .15s}
+.sc-btn:hover{background:var(--surface-hover);color:var(--text)}
+.sc-btn.active{background:var(--blue-dim);border-color:var(--blue);color:var(--blue)}
+.sc-desc{font-size:12px;color:var(--text-dim);width:100%;margin-top:4px}
+
+/* Chart container — all positioned elements are relative to this */
+.chart{position:relative}
+
+/* Group headers */
+.grp{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);padding:14px 0 5px 8px}
+
+/* Rows */
+.row{display:flex;align-items:stretch;min-height:40px;position:relative}
+.row:hover{background:rgba(255,255,255,.01)}
+.row-label{width:var(--label-w);flex-shrink:0;padding:6px 14px 6px 12px;text-align:right;display:flex;flex-direction:column;justify-content:center;border-right:1px solid var(--border)}
+.row-label .rl-name{font-size:11px;font-weight:500;color:var(--text);line-height:1.3}
+.row-label .rl-sub{font-size:10px;color:var(--text-dim);line-height:1.3}
+.row-track{flex:1;position:relative;min-height:40px}
+
+/* Bars */
+.bar{position:absolute;height:24px;top:8px;border-radius:5px;cursor:pointer;display:flex;align-items:center;padding:0 10px;font-size:10px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:filter .15s,outline-color .15s;z-index:2}
+.bar:hover{filter:brightness(1.25)}
+.bar.selected{outline:2px solid rgba(255,255,255,.8);outline-offset:1px}
+
+.bar.queue{background:var(--cyan-dim);color:var(--cyan);border:1px solid rgba(34,211,238,.3)}
+.bar.main{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(108,140,255,.3)}
+.bar.engine{background:rgba(108,140,255,.12);color:var(--blue);border:1px solid rgba(108,140,255,.2)}
+.bar.hooks{background:rgba(250,204,21,.1);color:var(--yellow);border:1px solid rgba(250,204,21,.2)}
+.bar.fsb{background:var(--cyan-dim);color:var(--cyan);border:1px solid rgba(34,211,238,.3)}
+.bar.csi{background:rgba(108,140,255,.1);color:var(--blue);border:1px solid rgba(108,140,255,.2)}
+.bar.datamover{background:var(--purple-dim);color:var(--purple);border:1px solid rgba(192,132,252,.3)}
+.bar.ops{background:var(--purple-dim);color:var(--purple);border:1px solid rgba(192,132,252,.3)}
+.bar.final{background:var(--orange-dim);color:var(--orange);border:1px solid rgba(251,146,60,.3)}
+.bar.progress{background:rgba(122,127,146,.08);color:var(--text-dim);border:1px solid rgba(122,127,146,.15)}
+.bar.native{background:var(--orange-dim);color:var(--orange);border:1px solid rgba(251,146,60,.3)}
+.bar.upload{background:var(--green-dim);color:var(--green);border:1px solid rgba(74,222,128,.3)}
+.bar.pulse{animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+
+/* Separator */
+.sep{height:1px;background:var(--border);margin:6px 0 6px var(--label-w)}
+
+/* Annotations — callout labels sitting below/above bars */
+.anno{position:absolute;z-index:3;pointer-events:none}
+.anno-line{position:absolute;width:1px;background:var(--text-dim)}
+.anno-label{position:absolute;font-size:9px;font-weight:600;letter-spacing:.3px;color:var(--text-muted);white-space:nowrap;padding:2px 6px;border-radius:3px;border:1px solid var(--border);background:var(--bg)}
+.anno-label.handoff{border-color:var(--orange-dim);color:var(--orange);background:rgba(251,146,60,.06)}
+.anno-label.blocks{border-color:var(--red-dim);color:var(--red);background:rgba(248,113,113,.06)}
+.anno-label.parallel{border-color:var(--green-dim);color:var(--green);background:rgba(74,222,128,.06)}
+.anno-label.info{border-color:var(--blue-dim);color:var(--blue);background:rgba(108,140,255,.06)}
+.anno-label.async{border-color:var(--purple-dim);color:var(--purple);background:rgba(192,132,252,.06)}
+
+/* Dependency arrows — SVG layer */
+.dep-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1}
+.dep-svg line{stroke-dasharray:4 3}
+.dep-svg polygon{opacity:.7}
+
+/* Time ruler */
+.ruler{position:sticky;top:0;z-index:10;background:var(--bg);display:flex;border-bottom:1px solid var(--border);padding-bottom:4px;margin-bottom:4px}
+.ruler-pad{width:var(--label-w);flex-shrink:0}
+.ruler-track{flex:1;position:relative;height:18px}
+.tick{position:absolute;top:0;font-size:9px;color:var(--text-dim);transform:translateX(-50%)}
+.tick::after{content:'';position:absolute;left:50%;top:14px;width:1px;height:4px;background:var(--border)}
+
+/* Detail panel */
+.dp-section{margin-bottom:16px}
+.dp-section h3{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-dim);margin-bottom:6px;font-weight:600}
+.dp-section p{font-size:12px;line-height:1.6;color:var(--text-muted)}
+.dp-section li{font-size:12px;line-height:1.5;margin-bottom:3px}
+.dp-section ul{padding-left:14px}
+.dp-badge{font-size:10px;font-weight:600;padding:3px 8px;border-radius:4px;display:inline-block;margin-bottom:8px}
+.dep-item{font-size:11px;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:5px;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.dep-item .dep-arrow{color:var(--text-dim)}
+.dep-item .dep-type{font-size:9px;font-weight:600;padding:1px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px}
+.dep-item .dep-type.blocks-on{background:var(--red-dim);color:var(--red)}
+.dep-item .dep-type.triggers{background:var(--orange-dim);color:var(--orange)}
+.dep-item .dep-type.runs-with{background:var(--green-dim);color:var(--green)}
+
+/* Controls */
+.controls{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px 12px;z-index:100;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.ctrl-btn{background:transparent;border:1px solid var(--border);color:var(--text-muted);font-size:11px;padding:5px 14px;border-radius:5px;cursor:pointer;font-family:inherit;transition:all .15s}
+.ctrl-btn:hover{background:var(--surface-hover);color:var(--text)}
+.ctrl-btn.active{background:var(--blue-dim);border-color:var(--blue);color:var(--blue)}
+.ctrl-sep{width:1px;height:20px;background:var(--border)}
+.time-display{font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;min-width:50px;text-align:center}
+
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="title">Velero Backup</span>
+  <a class="nav-tab" href="index.html">Controller Flow</a>
+  <a class="nav-tab" href="decision-tree.html">Volume Decision Tree</a>
+  <a class="nav-tab active" href="timeline.html">Timeline</a>
+</nav>
+
+<div class="layout">
+  <div class="tl-scroll" id="tlScroll">
+    <div class="tl-header">
+      <h2>Backup Timeline</h2>
+      <div class="sc-btns">
+        <button class="sc-btn active" onclick="load('happy',this)">Happy Path</button>
+        <button class="sc-btn" onclick="load('kopia',this)">Kopia FSB</button>
+        <button class="sc-btn" onclick="load('csi',this)">CSI Snapshot</button>
+        <button class="sc-btn" onclick="load('datamover',this)">CSI + Data Mover</button>
+        <button class="sc-btn" onclick="load('native',this)">Native Snapshot</button>
+      </div>
+      <div class="sc-desc" id="scDesc"></div>
+    </div>
+    <div class="chart" id="chart"></div>
+  </div>
+
+  <div class="detail-panel" id="dp">
+    <div class="dp-section"><h3>Backup Timeline</h3><p>Shows what runs in parallel during a backup and what depends on what. Click any bar to see its dependencies and relationships.</p></div>
+    <div class="dp-section"><h3>Reading the chart</h3>
+      <p>Horizontal axis = relative time. Each row = one concurrent activity. Dashed arrows show dependencies: one activity can't start until another finishes.</p>
+      <p style="margin-top:8px">Colored callouts mark key moments: <span style="color:var(--orange)">HANDOFF</span> between controllers, <span style="color:var(--red)">BLOCKS</span> where one thing waits on another, <span style="color:var(--green)">PARALLEL</span> where things run independently.</p>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="ctrl-btn" onclick="play()" id="playBtn">Play</button>
+  <button class="ctrl-btn" onclick="pause()" id="pauseBtn" style="display:none">Pause</button>
+  <button class="ctrl-btn" onclick="reset()">Reset</button>
+  <div class="ctrl-sep"></div>
+  <span class="time-display" id="timeDisp">0s</span>
+</div>
+
+<script>
+const S = 14; // px per second
+const LW = 200; // label width, matches CSS --label-w
+
+// ─── SCENARIO DATA ───
+// Each bar has an id for dependency arrows. deps: [{from, to, type, label}]
+// Annotations: {time, row, text, type, pos:'above'|'below'}
+const SC = {
+happy: {
+  desc: 'Metadata-only backup — no volume snapshots or FSB. Shows the core controller handoff chain and backup engine internals.',
+  dur: 48,
+  rows: [
+    { grp: 'Controller Chain' },
+    { id:'r-queue', name:'Queue Controller', sub:'backup_queue_controller.go', bars:[
+      { id:'b-queue', s:0, e:3, cls:'queue', text:'New → Queued → ReadyToStart',
+        detail:'Receives Backup CR. Checks concurrency limit (RunningCount < max), namespace conflicts with running backups, FIFO ordering. If all pass, sets phase=ReadyToStart and patches the CR.',
+        file:'backup_queue_controller.go:248-314' }
+    ]},
+    { id:'r-main', name:'Backup Controller', sub:'backup_controller.go', bars:[
+      { id:'b-validate', s:3, e:8, cls:'main', text:'Pick up + validate',
+        detail:'Update predicate fires on phase=ReadyToStart. Fetches CR, double-checks phase (race guard). Runs prepareBackupRequest(): resolves BSL, validates VSLs, checks resource filters, sets defaults. If errors → FailedValidation. Otherwise → InProgress.',
+        file:'backup_controller.go:270-345' },
+      { id:'b-engine', s:8, e:35, cls:'engine', text:'BackupWithResolvers()',
+        detail:'Core engine. Creates tar archive, resolves NS/resource filters, collects all matching items from K8s API, groups into ItemBlocks, processes through worker pool. Each block: pre-hooks → backupItem per item → post-hooks.',
+        file:'backup/backup.go:272-756' },
+      { id:'b-persist', s:35, e:38, cls:'upload', text:'Persist artifacts → BSL',
+        detail:'Encodes and uploads to object storage: backup.json metadata, backup tar contents, log file, resource list, volume info. Re-creates backup store in case credentials rotated during long backup.',
+        file:'backup_controller.go:873-885' }
+    ]},
+    { id:'r-final', name:'Finalizer Controller', sub:'backup_finalizer_controller.go', bars:[
+      { id:'b-final', s:38, e:44, cls:'final', text:'Finalize → Completed',
+        detail:'Watch predicate fires on phase=Finalizing. Downloads operations list (empty in this case). No async results to process. Sets phase=Completed, CompletionTimestamp, uploads final metadata. backupTracker.Delete().',
+        file:'backup_finalizer_controller.go:89-237' }
+    ]},
+    { sep:true },
+    { grp: 'Inside BackupWithResolvers()' },
+    { id:'r-collect', name:'Item Collection', sub:'ItemCollector → K8s API', bars:[
+      { id:'b-collect', s:8, e:14, cls:'engine', text:'Query API for all matching resources',
+        detail:'ItemCollector iterates all GVRs matching the backup spec. For each, calls the K8s API to list resources. Filters by namespace, label selectors, resource policies. Groups results by GVR.',
+        file:'backup/backup.go:448-467' }
+    ]},
+    { id:'r-workers', name:'Worker Pool', sub:'Concurrent ItemBlock processing', bars:[
+      { id:'b-workers', s:14, e:33, cls:'engine', text:'Process blocks (pre-hook → items → post-hook)',
+        detail:'Items are grouped into ItemBlocks (related items that share hooks). Blocks are dispatched to a worker pool for concurrent processing. Each worker: identify pods → run pre-hooks → backupItem() per item → run post-hooks.',
+        file:'backup/backup.go:569-710, 854-899' }
+    ]},
+    { id:'r-progress', name:'Progress Updater', sub:'Background goroutine', bars:[
+      { id:'b-progress', s:8, e:35, cls:'progress pulse', text:'Patch Backup CR with progress every 1s',
+        detail:'A background goroutine patches the Backup CR status with progress (itemsBackedUp / totalItems) every second. This is how "velero backup describe" shows live progress. Runs for the entire duration of BackupWithResolvers().',
+        file:'backup/backup.go:541-567' }
+    ]},
+    { id:'r-crd', name:'CRD Backup', sub:'After all items', bars:[
+      { id:'b-crd', s:33, e:35, cls:'engine', text:'Back up CRDs for custom resources',
+        detail:'After all items are processed, any CRDs for backed-up custom resources are included. This ensures restore can recreate the CRDs before the CRs that depend on them.',
+        file:'backup/backup.go:714-720' }
+    ]}
+  ],
+  deps: [
+    { from:'b-queue', to:'b-validate', type:'triggers', label:'Phase write triggers Update predicate' },
+    { from:'b-validate', to:'b-engine', type:'triggers', label:'Phase → InProgress, calls runBackup()' },
+    { from:'b-collect', to:'b-workers', type:'blocks', label:'Workers wait for item collection' },
+    { from:'b-workers', to:'b-crd', type:'blocks', label:'CRDs backed up after all items' },
+    { from:'b-crd', to:'b-persist', type:'blocks', label:'Persist after engine completes' },
+    { from:'b-persist', to:'b-final', type:'triggers', label:'Phase=Finalizing triggers finalizer watch' }
+  ],
+  annos: [
+    { time:3, rows:['r-queue','r-main'], text:'HANDOFF: Queue → Backup Controller', type:'handoff' },
+    { time:38, rows:['r-main','r-final'], text:'HANDOFF: Backup → Finalizer Controller', type:'handoff' },
+    { time:8, rows:['r-collect','r-progress'], text:'PARALLEL: collection + progress updater start together', type:'parallel' },
+    { time:14, rows:['r-collect','r-workers'], text:'BLOCKS: workers can\'t start until collection finishes', type:'blocks' }
+  ]
+},
+
+kopia: {
+  desc: 'File system backup via Kopia. Node-agent pods on each node run Kopia uploaders in parallel. Post-hooks wait for all PVBs to complete.',
+  dur: 70,
+  rows: [
+    { grp: 'Controller Chain' },
+    { id:'r-queue', name:'Queue Controller', bars:[
+      { id:'b-queue', s:0, e:3, cls:'queue', text:'New → Queued → ReadyToStart' }
+    ]},
+    { id:'r-main', name:'Backup Controller', bars:[
+      { id:'b-validate', s:3, e:8, cls:'main', text:'Pick up + validate' },
+      { id:'b-engine', s:8, e:55, cls:'engine', text:'BackupWithResolvers()' },
+      { id:'b-persist', s:55, e:58, cls:'upload', text:'Persist → BSL' }
+    ]},
+    { id:'r-final', name:'Finalizer Controller', bars:[
+      { id:'b-final', s:58, e:65, cls:'final', text:'Finalize → Completed' }
+    ]},
+    { sep:true },
+    { grp: 'Backup Engine' },
+    { id:'r-collect', name:'Item Collection', bars:[
+      { id:'b-collect', s:8, e:14, cls:'engine', text:'Discover & collect items' }
+    ]},
+    { id:'r-workers', name:'Worker Pool', bars:[
+      { id:'b-workers', s:14, e:50, cls:'engine', text:'Process item blocks',
+        detail:'For Pod items: calls ShouldPerformFSBackup() per volume → determines which volumes get FSB. Creates PodVolumeBackup CRs. Worker blocks until PVBs complete before running post-hooks.' }
+    ]},
+    { id:'r-progress', name:'Progress Updater', bars:[
+      { id:'b-progress', s:8, e:55, cls:'progress pulse', text:'Patch progress every 1s' }
+    ]},
+    { sep:true },
+    { grp: 'Pod Volume Backups (Kopia)' },
+    { id:'r-prehook', name:'Pre-hooks', sub:'e.g., fsfreeze', bars:[
+      { id:'b-prehook', s:15, e:17, cls:'hooks', text:'Run pre-backup hooks on pods',
+        detail:'handleItemBlockPreHooks() executes pre-backup hooks on pods in the block. Common use: "fsfreeze --freeze /data" to quiesce the filesystem before copying files.',
+        file:'backup/backup.go:914-928' }
+    ]},
+    { id:'r-node1', name:'Node-agent (node-1)', sub:'Kopia uploader on pod\'s node', bars:[
+      { id:'b-pvb1', s:17, e:42, cls:'fsb', text:'PVB: app-data → Kopia → BSL repo',
+        detail:'Node-agent DaemonSet on node-1 picks up the PodVolumeBackup CR. Runs Kopia uploader to read files from the pod\'s volume mount (/data) and stream them to the Kopia repository in the BSL. Repository type is always Kopia (Restic removed).',
+        file:'pkg/podvolume/backupper.go:367' }
+    ]},
+    { id:'r-node2', name:'Node-agent (node-2)', sub:'Kopia uploader on different node', bars:[
+      { id:'b-pvb2', s:18, e:46, cls:'fsb', text:'PVB: db-data → Kopia → BSL repo',
+        detail:'Second PVB on a different node. Runs fully in PARALLEL with node-1 — each node\'s node-agent handles its own pods. This is why FSB scales with cluster size.' }
+    ]},
+    { id:'r-posthook', name:'Post-hooks', sub:'e.g., fsthaw', bars:[
+      { id:'b-posthook', s:46, e:48, cls:'hooks', text:'Wait for PVBs → run post-hooks',
+        detail:'handleItemBlockPostHooks() first waits for ALL PodVolumeBackups in this block to complete (waits for slowest node-agent). Then runs post-hooks: "fsfreeze --unfreeze /data".',
+        file:'backup/backup.go:931-989' }
+    ]}
+  ],
+  deps: [
+    { from:'b-queue', to:'b-validate', type:'triggers', label:'Phase write triggers predicate' },
+    { from:'b-collect', to:'b-workers', type:'blocks', label:'Workers wait for collection' },
+    { from:'b-prehook', to:'b-pvb1', type:'triggers', label:'PVB CRs created after pre-hooks' },
+    { from:'b-prehook', to:'b-pvb2', type:'triggers', label:'PVBs created simultaneously' },
+    { from:'b-pvb1', to:'b-posthook', type:'blocks', label:'Post-hooks wait for ALL PVBs' },
+    { from:'b-pvb2', to:'b-posthook', type:'blocks', label:'Slowest PVB determines when post-hooks run' },
+    { from:'b-persist', to:'b-final', type:'triggers', label:'Phase=Finalizing triggers finalizer' }
+  ],
+  annos: [
+    { time:3, rows:['r-queue','r-main'], text:'HANDOFF: Queue → Backup Controller', type:'handoff' },
+    { time:58, rows:['r-main','r-final'], text:'HANDOFF: Backup → Finalizer', type:'handoff' },
+    { time:17, rows:['r-node1','r-node2'], text:'PARALLEL: node-agents run independently per node', type:'parallel' },
+    { time:46, rows:['r-node2','r-posthook'], text:'BLOCKS: post-hooks wait for slowest PVB', type:'blocks' }
+  ]
+},
+
+csi: {
+  desc: 'CSI VolumeSnapshot kept in-cluster (SnapshotMoveData=false). Velero waits for the CSI driver to report readyToUse=true, then includes the VS/VSC in the tar.',
+  dur: 52,
+  rows: [
+    { grp:'Controller Chain' },
+    { id:'r-queue', name:'Queue Controller', bars:[
+      { id:'b-queue', s:0, e:3, cls:'queue', text:'New → Queued → ReadyToStart' }
+    ]},
+    { id:'r-main', name:'Backup Controller', bars:[
+      { id:'b-validate', s:3, e:8, cls:'main', text:'Pick up + validate' },
+      { id:'b-engine', s:8, e:38, cls:'engine', text:'BackupWithResolvers()' },
+      { id:'b-persist', s:38, e:41, cls:'upload', text:'Persist → BSL' }
+    ]},
+    { id:'r-final', name:'Finalizer Controller', bars:[
+      { id:'b-final', s:41, e:47, cls:'final', text:'Finalize → Completed' }
+    ]},
+    { sep:true },
+    { grp:'CSI Snapshot Path (SnapshotMoveData=false)' },
+    { id:'r-bia', name:'CSI BIA Plugin', sub:'velero.io/csi-pvc-backupper', bars:[
+      { id:'b-bia', s:16, e:18, cls:'csi', text:'Execute on PVC → create VS CR',
+        detail:'CSI BackupItemAction runs during executeActions() for the PVC. Checks EnableCSI gate and ShouldPerformSnapshot(). Finds VolumeSnapshotClass for the CSI driver. Creates VolumeSnapshot CR.',
+        file:'pkg/backup/actions/csi/pvc_action.go:282-341' }
+    ]},
+    { id:'r-driver', name:'CSI Driver', sub:'External to Velero (e.g., ebs.csi.aws.com)', bars:[
+      { id:'b-driver', s:18, e:30, cls:'csi', text:'Driver provisions snapshot (cloud API)',
+        detail:'The CSI external-snapshotter and CSI driver handle the actual snapshot. For EBS CSI: calls ec2:CreateSnapshot. Creates VolumeSnapshotContent with readyToUse status. Velero does NOT control this — it\'s the CSI driver\'s job.' }
+    ]},
+    { id:'r-wait', name:'Velero Wait Loop', sub:'CSISnapshotTimeout (default 10m)', bars:[
+      { id:'b-wait', s:18, e:30, cls:'csi pulse', text:'Poll VSC until readyToUse=true',
+        detail:'Velero polls the VolumeSnapshotContent status in a loop, waiting for readyToUse=true. Times out at CSISnapshotTimeout. This is the main bottleneck — large volumes take longer to snapshot.',
+        file:'pkg/backup/actions/csi/pvc_action.go:348' }
+    ]},
+    { id:'r-addl', name:'Back up VS + VSC', sub:'Added as additionalItems', bars:[
+      { id:'b-addl', s:30, e:33, cls:'csi', text:'Include VS/VSC in tar archive',
+        detail:'SnapshotMoveData=false → the VolumeSnapshot is returned as an additionalItem. Both the VS and its VolumeSnapshotContent are serialized into the backup tar. On restore, the VSC is used as a pre-provisioned data source for a new PVC.',
+        file:'pkg/backup/actions/csi/pvc_action.go:432-442' }
+    ]},
+    { sep:true },
+    { grp:'Background' },
+    { id:'r-progress', name:'Progress Updater', bars:[
+      { id:'b-progress', s:8, e:38, cls:'progress pulse', text:'Patch progress every 1s' }
+    ]}
+  ],
+  deps: [
+    { from:'b-queue', to:'b-validate', type:'triggers', label:'Phase handoff' },
+    { from:'b-bia', to:'b-driver', type:'triggers', label:'VS CR triggers CSI driver' },
+    { from:'b-driver', to:'b-addl', type:'blocks', label:'Must be readyToUse before proceeding' },
+    { from:'b-persist', to:'b-final', type:'triggers', label:'Phase=Finalizing triggers finalizer' }
+  ],
+  annos: [
+    { time:3, rows:['r-queue','r-main'], text:'HANDOFF: Queue → Backup Controller', type:'handoff' },
+    { time:18, rows:['r-driver','r-wait'], text:'PARALLEL: driver works while Velero polls', type:'parallel' },
+    { time:30, rows:['r-wait','r-addl'], text:'BLOCKS: can\'t include VS until driver finishes', type:'blocks' },
+    { time:41, rows:['r-main','r-final'], text:'HANDOFF: Backup → Finalizer (no async ops)', type:'handoff' }
+  ]
+},
+
+datamover: {
+  desc: 'CSI snapshot + Kopia data mover (SnapshotMoveData=true). Creates a DataUpload CR which the node-agent processes ASYNC after the backup engine finishes. Operations controller polls until done.',
+  dur: 108,
+  rows: [
+    { grp:'Controller Chain (note: 3 handoffs)' },
+    { id:'r-queue', name:'Queue Controller', bars:[
+      { id:'b-queue', s:0, e:3, cls:'queue', text:'New → Queued → ReadyToStart' }
+    ]},
+    { id:'r-main', name:'Backup Controller', sub:'Handles sync part only', bars:[
+      { id:'b-validate', s:3, e:8, cls:'main', text:'Pick up + validate' },
+      { id:'b-engine', s:8, e:42, cls:'engine', text:'BackupWithResolvers()' },
+      { id:'b-persist', s:42, e:45, cls:'upload', text:'Persist → BSL' }
+    ]},
+    { id:'r-ops', name:'Operations Controller', sub:'Polls every 10s', bars:[
+      { id:'b-ops', s:45, e:88, cls:'ops pulse', text:'Poll DataUpload progress (every 10s)',
+        detail:'Periodic reconciler fires every 10 seconds. For each in-progress operation: queries plugin.Progress(operationID). If plugin error → Failed. If timeout → Cancel() + Failed. If all done → phase = Finalizing.',
+        file:'backup_operations_controller.go:109-219' }
+    ]},
+    { id:'r-final', name:'Finalizer Controller', bars:[
+      { id:'b-final', s:88, e:100, cls:'final', text:'Download tar → FinalizeBackup() → re-upload → Completed',
+        detail:'Downloads backup tarball. Calls FinalizeBackup() to process PostOperationItems from completed DataUploads. Re-runs BIA plugins on modified items. Builds new tarball. Uploads everything. Phase → Completed.',
+        file:'backup_finalizer_controller.go:167-237' }
+    ]},
+    { sep:true },
+    { grp:'CSI + Data Mover Path (SnapshotMoveData=true)' },
+    { id:'r-bia', name:'CSI BIA Plugin', bars:[
+      { id:'b-bia', s:16, e:18, cls:'csi', text:'Create VolumeSnapshot CR',
+        detail:'Same CSI BIA as in-cluster path. Creates VolumeSnapshot CR for the PVC.' }
+    ]},
+    { id:'r-driver', name:'CSI Driver', sub:'External', bars:[
+      { id:'b-driver', s:18, e:28, cls:'csi', text:'Driver provisions snapshot' }
+    ]},
+    { id:'r-du', name:'DataUpload CR', sub:'SnapshotMoveData=true', bars:[
+      { id:'b-du', s:28, e:30, cls:'datamover', text:'Create DataUpload + operationID',
+        detail:'SnapshotMoveData=true. CSI BIA creates a DataUpload CR with SnapshotType=CSI, pointing to the VolumeSnapshot. Generates an operationID for async progress tracking by the operations controller.',
+        file:'pkg/backup/actions/csi/pvc_action.go:375-431' }
+    ]},
+    { id:'r-node', name:'Node-agent', sub:'Mount snapshot + Kopia upload', bars:[
+      { id:'b-node', s:32, e:82, cls:'datamover', text:'Expose VS as volume → Kopia stream → BSL',
+        detail:'Node-agent picks up DataUpload CR. Mounts the CSI VolumeSnapshot as a read-only volume on the node. Runs Kopia uploader to stream data to BSL. This is the LONGEST step — depends on data size. Can be minutes to hours for large volumes.' }
+    ]},
+    { id:'r-cleanup', name:'Snapshot Cleanup', sub:'Transient', bars:[
+      { id:'b-cleanup', s:82, e:86, cls:'datamover', text:'Delete VolumeSnapshot (transient)',
+        detail:'After Kopia upload completes, the VolumeSnapshot is deleted. The data now lives entirely in the BSL Kopia repository. This is what makes the backup portable across clusters.' }
+    ]},
+    { sep:true },
+    { grp:'Background' },
+    { id:'r-progress', name:'Progress Updater', bars:[
+      { id:'b-progress', s:8, e:42, cls:'progress pulse', text:'Patch progress every 1s' }
+    ]}
+  ],
+  deps: [
+    { from:'b-queue', to:'b-validate', type:'triggers', label:'Phase handoff' },
+    { from:'b-bia', to:'b-driver', type:'triggers', label:'VS CR triggers driver' },
+    { from:'b-driver', to:'b-du', type:'blocks', label:'Snapshot ready before DataUpload' },
+    { from:'b-du', to:'b-node', type:'triggers', label:'Node-agent watches for DataUpload CRs' },
+    { from:'b-node', to:'b-cleanup', type:'triggers', label:'Upload done → clean up snapshot' },
+    { from:'b-persist', to:'b-ops', type:'triggers', label:'HANDOFF: phase=WaitingForPluginOps' },
+    { from:'b-cleanup', to:'b-ops', type:'blocks', label:'Ops controller waits for DataUpload completion' },
+    { from:'b-ops', to:'b-final', type:'triggers', label:'HANDOFF: phase=Finalizing' }
+  ],
+  annos: [
+    { time:3, rows:['r-queue','r-main'], text:'HANDOFF 1: Queue → Backup Controller', type:'handoff' },
+    { time:45, rows:['r-main','r-ops'], text:'HANDOFF 2: Backup → Operations Controller', type:'handoff' },
+    { time:88, rows:['r-ops','r-final'], text:'HANDOFF 3: Operations → Finalizer Controller', type:'handoff' },
+    { time:32, rows:['r-node'], text:'LONGEST STEP: Kopia upload (depends on data size)', type:'info' },
+    { time:45, rows:['r-main','r-node'], text:'ASYNC: backup controller done, data mover continues independently', type:'async' }
+  ]
+},
+
+native: {
+  desc: 'Native cloud snapshot (AWS EBS, GCP PD, Azure Disk). VolumeSnapshotter plugin calls cloud API directly during item processing. Synchronous — no async controller needed.',
+  dur: 48,
+  rows: [
+    { grp:'Controller Chain' },
+    { id:'r-queue', name:'Queue Controller', bars:[
+      { id:'b-queue', s:0, e:3, cls:'queue', text:'New → Queued → ReadyToStart' }
+    ]},
+    { id:'r-main', name:'Backup Controller', bars:[
+      { id:'b-validate', s:3, e:8, cls:'main', text:'Pick up + validate' },
+      { id:'b-engine', s:8, e:35, cls:'engine', text:'BackupWithResolvers()' },
+      { id:'b-persist', s:35, e:38, cls:'upload', text:'Persist → BSL' }
+    ]},
+    { id:'r-final', name:'Finalizer Controller', bars:[
+      { id:'b-final', s:38, e:44, cls:'final', text:'Finalize → Completed' }
+    ]},
+    { sep:true },
+    { grp:'Native Snapshot Path (inside backupItem for PVs)' },
+    { id:'r-find', name:'Find Snapshotter', sub:'item_backupper.go:667', bars:[
+      { id:'b-find', s:18, e:20, cls:'native', text:'GetVolumeID() per VSL provider',
+        detail:'For each VolumeSnapshotLocation, gets the VolumeSnapshotter plugin and calls GetVolumeID(pv). The first plugin that returns a non-empty volume ID is used. AWS returns the EBS volume ID, GCP the PD name, etc.',
+        file:'backup/item_backupper.go:667-688' }
+    ]},
+    { id:'r-cloud', name:'Cloud API', sub:'e.g., ec2:CreateSnapshot', bars:[
+      { id:'b-cloud', s:20, e:26, cls:'native', text:'CreateSnapshot(volumeID, zone, tags)',
+        detail:'The VolumeSnapshotter plugin calls the cloud provider API. This is SYNCHRONOUS — the backup engine blocks until the API returns the snapshot ID. For AWS EBS, this initiates the snapshot but doesn\'t wait for it to complete (EBS snapshots are eventually consistent).',
+        file:'backup/item_backupper.go:714-728' }
+    ]},
+    { id:'r-record', name:'Record', sub:'VolumeSnapshots list', bars:[
+      { id:'b-record', s:26, e:28, cls:'native', text:'Store snapshotID, volumeType, IOPS, zone',
+        detail:'Snapshot metadata is recorded in the backup\'s VolumeSnapshots list. On restore, Velero calls CreateVolumeFromSnapshot() to create a new volume, then SetVolumeID() to update the PV.' }
+    ]},
+    { sep:true },
+    { grp:'Background' },
+    { id:'r-progress', name:'Progress Updater', bars:[
+      { id:'b-progress', s:8, e:35, cls:'progress pulse', text:'Patch progress every 1s' }
+    ]}
+  ],
+  deps: [
+    { from:'b-queue', to:'b-validate', type:'triggers', label:'Phase handoff' },
+    { from:'b-find', to:'b-cloud', type:'blocks', label:'Must find snapshotter before calling API' },
+    { from:'b-cloud', to:'b-record', type:'blocks', label:'Record after snapshot ID returned' },
+    { from:'b-persist', to:'b-final', type:'triggers', label:'Phase=Finalizing triggers finalizer' }
+  ],
+  annos: [
+    { time:3, rows:['r-queue','r-main'], text:'HANDOFF: Queue → Backup Controller', type:'handoff' },
+    { time:20, rows:['r-cloud'], text:'SYNC: backup engine blocks on cloud API call', type:'blocks' },
+    { time:38, rows:['r-main','r-final'], text:'HANDOFF: Backup → Finalizer (no async ops)', type:'handoff' }
+  ]
+}
+};
+
+// ─── STATE ───
+let cur = 'happy', playT = 0, playRaf = null;
+
+// ─── BUILD ROW INDEX ───
+function rowIndex(sc) {
+  const m = {}; let i = 0;
+  sc.rows.forEach(r => { if (r.id) m[r.id] = i; if (!r.grp && !r.sep) i++; });
+  return m;
+}
+function barRect(sc, barId) {
+  const ri = rowIndex(sc);
+  for (const r of sc.rows) {
+    if (!r.bars) continue;
+    for (const b of r.bars) {
+      if (b.id === barId) return { row: ri[r.id], s: b.s, e: b.e };
+    }
+  }
+  return null;
+}
+
+// ─── RENDER ───
+function render() {
+  const sc = SC[cur];
+  document.getElementById('scDesc').textContent = sc.desc;
+  const ROW_H = 40;
+  let html = '';
+
+  // Ruler
+  html += `<div class="ruler"><div class="ruler-pad"></div><div class="ruler-track">`;
+  for (let t = 0; t <= sc.dur; t += 5) {
+    html += `<div class="tick" style="left:${t*S}px">${t}s</div>`;
+  }
+  html += `</div></div>`;
+
+  // Rows
+  let rowY = 28; // after ruler
+  const rowPositions = {}; // rowId → y center
+  let dataRowIdx = 0;
+
+  sc.rows.forEach(r => {
+    if (r.sep) { html += `<div class="sep"></div>`; rowY += 13; return; }
+    if (r.grp) { html += `<div class="grp">${r.grp}</div>`; rowY += 28; return; }
+
+    if (r.id) rowPositions[r.id] = rowY + ROW_H/2;
+
+    html += `<div class="row" style="height:${ROW_H}px">`;
+    html += `<div class="row-label"><span class="rl-name">${r.name}</span>${r.sub ? `<span class="rl-sub">${r.sub}</span>`:''}</div>`;
+    html += `<div class="row-track">`;
+    (r.bars||[]).forEach(b => {
+      const l = b.s * S, w = (b.e - b.s) * S;
+      html += `<div class="bar ${b.cls}" id="${b.id}" style="left:${l}px;width:${w}px" onclick="showBar('${b.id}')">${b.text}</div>`;
+    });
+    html += `</div></div>`;
+    rowY += ROW_H;
+    dataRowIdx++;
+  });
+
+  // SVG for dependency arrows
+  const svgH = rowY + 20;
+  html += `<svg class="dep-svg" style="height:${svgH}px">`;
+  (sc.deps||[]).forEach(d => {
+    const from = barRect(sc, d.from), to = barRect(sc, d.to);
+    if (!from || !to) return;
+    // Find Y positions
+    let fromY = 0, toY = 0;
+    for (const [rid, yc] of Object.entries(rowPositions)) {
+      const r = sc.rows.find(x => x.id === rid);
+      if (r && r.bars && r.bars.find(b => b.id === d.from)) fromY = yc;
+      if (r && r.bars && r.bars.find(b => b.id === d.to)) toY = yc;
+    }
+    const x1 = LW + from.e * S;
+    const x2 = LW + to.s * S;
+    const color = d.type === 'blocks' ? '#f87171' : d.type === 'triggers' ? '#fb923c' : '#7a7f92';
+    html += `<line x1="${x1}" y1="${fromY}" x2="${x2}" y2="${toY}" stroke="${color}" stroke-width="1.5"/>`;
+    // Arrowhead
+    const dx = x2 - x1, dy = toY - fromY;
+    const len = Math.sqrt(dx*dx + dy*dy) || 1;
+    const ux = dx/len, uy = dy/len;
+    const ax = x2 - ux*8, ay = toY - uy*8;
+    html += `<polygon points="${x2},${toY} ${ax - uy*4},${ay + ux*4} ${ax + uy*4},${ay - ux*4}" fill="${color}"/>`;
+  });
+  html += `</svg>`;
+
+  // Annotations
+  (sc.annos||[]).forEach(a => {
+    const x = LW + a.time * S;
+    // Find Y range from rows
+    let minY = 9999, maxY = 0;
+    (a.rows||[]).forEach(rid => {
+      const y = rowPositions[rid];
+      if (y !== undefined) { minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+    });
+    const midY = (minY + maxY) / 2;
+
+    html += `<div class="anno" style="left:${x - 1}px;top:${minY - 14}px">`;
+    html += `<div class="anno-line" style="height:${maxY - minY + 28}px;left:0;top:0;opacity:.3"></div>`;
+    html += `<div class="anno-label ${a.type}" style="left:6px;top:${(maxY-minY)/2 - 2}px">${a.text}</div>`;
+    html += `</div>`;
+  });
+
+  // Playhead
+  html += `<div class="playhead" id="playhead" style="left:${LW}px;display:none;height:${svgH}px"></div>`;
+
+  document.getElementById('chart').innerHTML = html;
+}
+
+// ─── BAR DETAIL ───
+function showBar(barId) {
+  document.querySelectorAll('.bar.selected').forEach(el => el.classList.remove('selected'));
+  const el = document.getElementById(barId);
+  if (el) el.classList.add('selected');
+
+  const sc = SC[cur];
+  let bar, row;
+  for (const r of sc.rows) {
+    if (!r.bars) continue;
+    const b = r.bars.find(x => x.id === barId);
+    if (b) { bar = b; row = r; break; }
+  }
+  if (!bar) return;
+
+  const CLS_COLOR = {queue:'cyan',main:'blue',engine:'blue',hooks:'yellow',fsb:'cyan',csi:'blue',datamover:'purple',ops:'purple',final:'orange',progress:'text-muted',native:'orange',upload:'green'};
+  const CLS_LABEL = {queue:'Queue Controller',main:'Backup Controller',engine:'Backup Engine',hooks:'Hooks',fsb:'Kopia FSB',csi:'CSI Snapshot',datamover:'Data Mover',ops:'Operations Controller',final:'Finalizer Controller',progress:'Background',native:'Native Snapshot',upload:'Storage Upload'};
+  const bc = bar.cls.split(' ')[0];
+  const c = CLS_COLOR[bc] || 'text-muted';
+
+  let html = `<div class="dp-section">
+    <div class="dp-badge" style="background:var(--${c}-dim);color:var(--${c})">${CLS_LABEL[bc]||bc}</div>
+    <h3 style="font-size:14px;font-weight:600;color:var(--text);text-transform:none;letter-spacing:0;margin-bottom:2px">${bar.text}</h3>
+    <p style="font-size:11px;color:var(--text-dim)">${row.name}${row.sub ? ' — '+row.sub : ''}</p>
+  </div>`;
+
+  html += `<div class="dp-section"><h3>Timing</h3><p>Starts at <strong>${bar.s}s</strong>, ends at <strong>${bar.e}s</strong> (duration: ${bar.e-bar.s}s)</p></div>`;
+
+  if (bar.detail) html += `<div class="dp-section"><h3>What happens here</h3><p>${bar.detail}</p></div>`;
+  if (bar.file) html += `<div class="dp-section"><h3>Source</h3><p style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--blue)">${bar.file}</p></div>`;
+
+  // Dependencies
+  const depsFrom = (sc.deps||[]).filter(d => d.to === barId);
+  const depsTo = (sc.deps||[]).filter(d => d.from === barId);
+
+  if (depsFrom.length > 0 || depsTo.length > 0) {
+    html += `<div class="dp-section"><h3>Dependencies</h3>`;
+    depsFrom.forEach(d => {
+      const srcBar = findBar(sc, d.from);
+      const tc = d.type === 'blocks' ? 'blocks-on' : d.type === 'triggers' ? 'triggers' : 'runs-with';
+      html += `<div class="dep-item"><span class="dep-type ${tc}">${d.type === 'blocks' ? 'waits for' : 'triggered by'}</span> ${srcBar ? srcBar.text : d.from} <span class="dep-arrow">→</span> this</div>`;
+      if (d.label) html += `<p style="font-size:11px;color:var(--text-dim);margin:-2px 0 6px 4px">${d.label}</p>`;
+    });
+    depsTo.forEach(d => {
+      const tgtBar = findBar(sc, d.to);
+      const tc = d.type === 'blocks' ? 'blocks-on' : d.type === 'triggers' ? 'triggers' : 'runs-with';
+      html += `<div class="dep-item">this <span class="dep-arrow">→</span> <span class="dep-type ${tc}">${d.type}</span> ${tgtBar ? tgtBar.text : d.to}</div>`;
+      if (d.label) html += `<p style="font-size:11px;color:var(--text-dim);margin:-2px 0 6px 4px">${d.label}</p>`;
+    });
+    html += `</div>`;
+  }
+
+  // Parallel
+  const par = [];
+  sc.rows.forEach(r => {
+    (r.bars||[]).forEach(b => {
+      if (b === bar) return;
+      if (b.s < bar.e && b.e > bar.s) par.push(`${r.name}: ${b.text}`);
+    });
+  });
+  if (par.length > 0) {
+    html += `<div class="dp-section"><h3>Running in parallel</h3><ul>${par.map(p => `<li>${p}</li>`).join('')}</ul></div>`;
+  }
+
+  document.getElementById('dp').innerHTML = html;
+}
+
+function findBar(sc, id) {
+  for (const r of sc.rows) { const b = (r.bars||[]).find(x => x.id === id); if (b) return b; }
+  return null;
+}
+
+// ─── PLAYBACK ───
+function play() {
+  document.getElementById('playBtn').style.display = 'none';
+  document.getElementById('pauseBtn').style.display = '';
+  const ph = document.getElementById('playhead');
+  ph.style.display = 'block';
+  const sc = SC[cur];
+  (function tick() {
+    playT += 0.15;
+    if (playT > sc.dur) { pause(); return; }
+    ph.style.left = (LW + playT * S) + 'px';
+    document.getElementById('timeDisp').textContent = playT.toFixed(1) + 's';
+    playRaf = requestAnimationFrame(tick);
+  })();
+}
+function pause() {
+  if (playRaf) cancelAnimationFrame(playRaf);
+  playRaf = null;
+  document.getElementById('playBtn').style.display = '';
+  document.getElementById('pauseBtn').style.display = 'none';
+}
+function reset() {
+  pause(); playT = 0;
+  document.getElementById('timeDisp').textContent = '0s';
+  const ph = document.getElementById('playhead');
+  if (ph) { ph.style.left = LW + 'px'; ph.style.display = 'none'; }
+}
+function load(key, btn) {
+  cur = key;
+  document.querySelectorAll('.sc-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  reset(); render();
+}
+
+// Init
+render();
+</script>
+</body>
+</html>
