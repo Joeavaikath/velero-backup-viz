@@ -6,15 +6,16 @@
 <title>Velero — Volume Decision Tree</title>
 <style>
 :root {
-  --bg: #0f1117; --surface: #161922; --surface-hover: #1e2130;
-  --border: #282c3a; --text: #e1e4ed; --text-muted: #7a7f92; --text-dim: #4e5264;
-  --green: #4ade80; --green-dim: #16503a;
-  --red: #f87171; --red-dim: #5c1e1e;
-  --blue: #6c8cff; --blue-dim: #2a3766;
-  --purple: #c084fc; --purple-dim: #3d2266;
-  --orange: #fb923c; --orange-dim: #4d2e12;
-  --cyan: #22d3ee; --cyan-dim: #0c3d47;
-  --yellow: #facc15; --yellow-dim: #5c4d10;
+  --bg: #0f1117; --surface: #161922; --surface2: #1c1f2b; --surface-hover: #222639;
+  --border: #282c3a; --border-light: #333849;
+  --text: #e1e4ed; --text-muted: #8b90a2; --text-dim: #555a6e;
+  --green: #4ade80; --green-dim: #16503a; --green-bg: rgba(74,222,128,.06);
+  --red: #f87171; --red-dim: #5c1e1e; --red-bg: rgba(248,113,113,.06);
+  --blue: #6c8cff; --blue-dim: #2a3766; --blue-bg: rgba(108,140,255,.06);
+  --purple: #c084fc; --purple-dim: #3d2266; --purple-bg: rgba(192,132,252,.06);
+  --orange: #fb923c; --orange-dim: #4d2e12; --orange-bg: rgba(251,146,60,.06);
+  --cyan: #22d3ee; --cyan-dim: #0c3d47; --cyan-bg: rgba(34,211,238,.06);
+  --yellow: #facc15;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column}
@@ -25,102 +26,109 @@ nav{height:44px;display:flex;align-items:center;padding:0 24px;border-bottom:1px
 .nav-tab.active{background:var(--blue-dim);border-color:var(--blue);color:var(--blue)}
 nav .title{font-size:14px;font-weight:600;margin-right:16px}
 
-.canvas{flex:1;overflow:auto;position:relative;padding:24px}
+/* ── Main layout ── */
+.main{display:flex;flex:1;overflow:hidden}
+.tree-area{flex:1;overflow:auto;padding:32px 40px 80px}
+.info-panel{width:400px;border-left:1px solid var(--border);background:var(--surface);overflow-y:auto;flex-shrink:0;padding:24px}
 
-/* ── Tree layout ── */
-.tree{display:flex;flex-direction:column;align-items:center;padding-bottom:60px}
-.node-wrap{display:flex;flex-direction:column;align-items:center}
-.branch-wrap{display:flex;justify-content:center;gap:0;position:relative}
-.branch-arm{display:flex;flex-direction:column;align-items:center;padding:0 8px}
+/* ── Flow column: nodes stacked vertically, selected path flows down ── */
+.flow{display:flex;flex-direction:column;align-items:stretch;max-width:700px;margin:0 auto;gap:0}
 
-/* Connector lines */
-.vline{width:2px;background:var(--border);transition:background .3s}
-.vline.on{background:var(--green)}
-.hline-container{display:flex;align-items:flex-start;width:100%;position:relative;justify-content:center}
-.hline{height:2px;background:var(--border);transition:background .3s}
-.hline.on{background:var(--green)}
-
-/* ── Nodes ── */
-.node{
-  background:var(--surface);border:1px solid var(--border);border-radius:10px;
-  padding:12px 16px;min-width:180px;max-width:240px;text-align:center;
-  cursor:default;transition:all .2s;position:relative;
+/* ── Decision node ── */
+.dnode{
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:20px 24px;position:relative;transition:all .25s;
 }
-.node:hover{border-color:var(--text-dim);background:var(--surface-hover)}
-.node.dimmed{opacity:.2;pointer-events:none}
-.node.highlighted{border-color:var(--green);box-shadow:0 0 12px rgba(74,222,128,.12)}
+.dnode:hover{border-color:var(--border-light)}
+.dnode.active{border-color:var(--blue);background:var(--blue-bg)}
+.dnode.past{border-color:var(--green-dim);background:var(--green-bg);border-left:3px solid var(--green)}
 
-.node-tag{
-  font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;
-  padding:2px 7px;border-radius:3px;display:inline-block;margin-bottom:6px;
+.dnode-header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.dnode-num{
+  width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);
+  flex-shrink:0;
 }
-.node-tag.q{background:var(--blue-dim);color:var(--blue)}
-.node-tag.out{background:var(--green-dim);color:var(--green)}
-.node-tag.skip{background:var(--red-dim);color:var(--red)}
-.node-tag.fsb{background:var(--cyan-dim);color:var(--cyan)}
-.node-tag.csi{background:var(--blue-dim);color:var(--blue)}
-.node-tag.dm{background:var(--purple-dim);color:var(--purple)}
-.node-tag.native{background:var(--orange-dim);color:var(--orange)}
+.dnode.active .dnode-num{background:var(--blue-dim);border-color:var(--blue);color:var(--blue)}
+.dnode.past .dnode-num{background:var(--green-dim);border-color:var(--green);color:var(--green)}
+.dnode-title{font-size:15px;font-weight:600;line-height:1.3}
+.dnode-sub{font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:12px;margin-left:38px}
+.dnode-file{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--text-dim);margin-left:38px;margin-bottom:12px}
 
-.node-title{font-size:12px;font-weight:500;line-height:1.3}
-.node-sub{font-size:10px;color:var(--text-dim);line-height:1.3;margin-top:3px}
-
-/* Outcome nodes */
-.node.outcome{border-width:2px}
-.node.outcome.fsb{border-color:var(--cyan-dim)}
-.node.outcome.csi{border-color:var(--blue-dim)}
-.node.outcome.dm{border-color:var(--purple-dim)}
-.node.outcome.native{border-color:var(--orange-dim)}
-.node.outcome.skip{border-color:var(--red-dim)}
-
-/* ── Toggle switches ── */
-.toggle-row{display:flex;align-items:center;justify-content:center;gap:0;margin:4px 0}
-.toggle-btn{
-  font-size:10px;font-weight:600;padding:3px 12px;cursor:pointer;
-  border:1px solid var(--border);transition:all .15s;font-family:inherit;
-  background:var(--bg);color:var(--text-dim);
+/* ── Toggle switch ── */
+.switch-row{display:flex;gap:6px;margin-left:38px;flex-wrap:wrap}
+.sw-btn{
+  font-size:12px;font-weight:500;padding:7px 18px;cursor:pointer;
+  border:1px solid var(--border);border-radius:8px;transition:all .15s;
+  font-family:inherit;background:var(--bg);color:var(--text-muted);
 }
-.toggle-btn:first-child{border-radius:4px 0 0 4px}
-.toggle-btn:last-child{border-radius:0 4px 4px 0}
-.toggle-btn:not(:first-child){border-left:none}
-.toggle-btn:hover{color:var(--text);background:var(--surface-hover)}
-.toggle-btn.yes.active{background:var(--green-dim);color:var(--green);border-color:var(--green-dim)}
-.toggle-btn.no.active{background:var(--red-dim);color:var(--red);border-color:var(--red-dim)}
-.toggle-btn.choice.active{background:var(--blue-dim);color:var(--blue);border-color:var(--blue-dim)}
+.sw-btn:hover{color:var(--text);background:var(--surface-hover);border-color:var(--border-light)}
+.sw-btn.active.yes{background:var(--green-dim);color:var(--green);border-color:var(--green)}
+.sw-btn.active.no{background:var(--red-dim);color:var(--red);border-color:var(--red)}
+.sw-btn.active.choice{background:var(--blue-dim);color:var(--blue);border-color:var(--blue)}
 
-/* ── Tooltip ── */
-.tooltip{
-  position:fixed;z-index:1000;pointer-events:none;
-  background:var(--surface);border:1px solid var(--border);border-radius:8px;
-  padding:14px 18px;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.5);
-  opacity:0;transition:opacity .15s;
-}
-.tooltip.show{opacity:1}
-.tooltip h4{font-size:13px;font-weight:600;margin-bottom:6px}
-.tooltip p{font-size:11px;color:var(--text-muted);line-height:1.5;margin-bottom:6px}
-.tooltip .tt-file{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--blue);margin-bottom:6px}
-.tooltip .tt-code{
-  font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--bg);
-  border:1px solid var(--border);border-radius:5px;padding:8px 10px;
-  white-space:pre;overflow-x:auto;color:var(--text-dim);line-height:1.4;
-  max-height:140px;max-width:340px;
-}
+/* ── Connector ── */
+.connector{display:flex;justify-content:center;padding:0 0 0 18px}
+.conn-line{width:2px;height:24px;background:var(--border);transition:background .3s}
+.conn-line.on{background:var(--green)}
 
-/* ── Bottom bar ── */
+/* ── Outcome card ── */
+.ocard{
+  border-radius:12px;padding:24px 28px;position:relative;
+  border:2px solid;text-align:left;
+}
+.ocard.fsb{background:var(--cyan-bg);border-color:var(--cyan-dim)}
+.ocard.csi{background:var(--blue-bg);border-color:var(--blue-dim)}
+.ocard.dm{background:var(--purple-bg);border-color:var(--purple-dim)}
+.ocard.native{background:var(--orange-bg);border-color:var(--orange-dim)}
+.ocard.skip{background:var(--red-bg);border-color:var(--red-dim)}
+
+.ocard-badge{
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;
+  padding:4px 10px;border-radius:5px;display:inline-block;margin-bottom:10px;
+}
+.ocard.fsb .ocard-badge{background:var(--cyan-dim);color:var(--cyan)}
+.ocard.csi .ocard-badge{background:var(--blue-dim);color:var(--blue)}
+.ocard.dm .ocard-badge{background:var(--purple-dim);color:var(--purple)}
+.ocard.native .ocard-badge{background:var(--orange-dim);color:var(--orange)}
+.ocard.skip .ocard-badge{background:var(--red-dim);color:var(--red)}
+
+.ocard-title{font-size:18px;font-weight:600;margin-bottom:6px}
+.ocard-sub{font-size:13px;color:var(--text-muted);line-height:1.6}
+
+.ocard.fsb .ocard-title{color:var(--cyan)}
+.ocard.csi .ocard-title{color:var(--blue)}
+.ocard.dm .ocard-title{color:var(--purple)}
+.ocard.native .ocard-title{color:var(--orange)}
+.ocard.skip .ocard-title{color:var(--red)}
+
+/* ── Info panel ── */
+.ip-section{margin-bottom:20px}
+.ip-section h3{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-dim);margin-bottom:8px;font-weight:600}
+.ip-section p{font-size:12px;line-height:1.6;color:var(--text-muted)}
+.ip-code{
+  font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg);
+  border:1px solid var(--border);border-radius:6px;padding:12px;
+  white-space:pre;overflow-x:auto;color:var(--text-dim);line-height:1.5;max-height:200px;
+}
+.ip-table{width:100%;border-collapse:collapse}
+.ip-table td{font-size:11px;padding:5px 8px;border-bottom:1px solid var(--border)}
+.ip-table td:first-child{color:var(--text-dim);white-space:nowrap;width:50%;font-family:'JetBrains Mono',monospace;font-size:10px}
+
+/* ── Controls ── */
 .bottom-bar{
   position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
-  display:flex;gap:8px;align-items:center;
+  display:flex;gap:10px;align-items:center;
   background:var(--surface);border:1px solid var(--border);border-radius:10px;
-  padding:6px 14px;z-index:100;box-shadow:0 8px 32px rgba(0,0,0,.5);
-  font-size:12px;color:var(--text-muted);
+  padding:8px 16px;z-index:100;box-shadow:0 8px 32px rgba(0,0,0,.5);
 }
 .bottom-bar button{
   background:transparent;border:1px solid var(--border);color:var(--text-muted);
   font-size:11px;padding:5px 14px;border-radius:5px;cursor:pointer;font-family:inherit;
 }
 .bottom-bar button:hover{background:var(--surface-hover);color:var(--text)}
-.bottom-bar .sep{width:1px;height:20px;background:var(--border)}
-.path-label{font-size:11px;min-width:200px}
+.path-crumbs{font-size:11px;color:var(--text-dim);max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.path-crumbs span{color:var(--green);font-weight:500}
 
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -136,367 +144,360 @@ nav .title{font-size:14px;font-weight:600;margin-right:16px}
   <a class="nav-tab" href="timeline.html">Timeline</a>
 </nav>
 
-<div class="canvas" id="canvas"></div>
-<div class="tooltip" id="tooltip"></div>
+<div class="main">
+  <div class="tree-area"><div class="flow" id="flow"></div></div>
+  <div class="info-panel" id="infoPanel">
+    <div class="ip-section"><h3>Volume Decision Tree</h3>
+      <p>Toggle the switches on each decision node to trace the path your configuration takes. The selected path extends downward; unselected branches collapse. Hover or click any node to see source code details.</p>
+    </div>
+    <div class="ip-section"><h3>Key Config Fields</h3>
+      <table class="ip-table">
+        <tr><td>spec.resourcePolicy</td><td>ConfigMap with volume policies</td></tr>
+        <tr><td>spec.defaultVolumesToFsBackup</td><td>Opt-in (false) vs opt-out (true)</td></tr>
+        <tr><td>spec.snapshotMoveData</td><td>Upload CSI snapshot to BSL</td></tr>
+        <tr><td>spec.snapshotVolumes</td><td>Enable/disable all snapshots</td></tr>
+      </table>
+    </div>
+    <div class="ip-section"><h3>Pod Annotations</h3>
+      <table class="ip-table">
+        <tr><td>backup.velero.io/backup-volumes</td><td>Opt-in volumes (comma-sep)</td></tr>
+        <tr><td>backup.velero.io/backup-volumes-excludes</td><td>Opt-out volumes</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
 
 <div class="bottom-bar">
-  <span class="path-label" id="pathLabel">Toggle switches to trace a path</span>
-  <div class="sep"></div>
-  <button onclick="resetAll()">Reset All</button>
+  <div class="path-crumbs" id="pathCrumbs">Select a branch to begin</div>
+  <button onclick="resetAll()">Reset</button>
 </div>
 
 <script>
 // ─── TREE DATA ───
-// Recursive structure. Each node has id, title, sub, detail, file, code.
-// Branch nodes have `branches` array with {label, child} entries.
-// Leaf nodes have `outcome` with {type, title, sub}.
-const TREE = {
-  id:'policy', title:'ResourcePolicy configured?',
-  sub:'BackupSpec.ResourcePolicy → ConfigMap',
-  detail:'Volume policies have the highest priority. If a matching policy is found, its action overrides all annotation-based and default logic. Policies are defined in a ConfigMap referenced by the backup spec.',
-  file:'internal/volumehelper/volume_policy_helper.go:126',
-  code:`action := v.volumePolicy.GetMatchAction(volumeData)
+const TREE = [
+  { id:'policy', title:'ResourcePolicy configured with volume policies?',
+    sub:'BackupSpec.ResourcePolicy references a ConfigMap containing volumePolicies rules.',
+    file:'internal/volumehelper/volume_policy_helper.go:126',
+    detail:'Volume policies have the highest priority. If a matching policy is found, its action overrides all annotation-based and default logic.',
+    code:`action := v.volumePolicy.GetMatchAction(volumeData)
 if action.Type == Snapshot { return true }
 if action.Type != "" { return false }
 // no match → fall through to legacy...`,
-  branches:[
-    {label:'Yes', child:{
-      id:'policy-match', title:'Policy rule matches volume?',
-      sub:'First-match wins across all rules',
-      detail:'Policies are evaluated in order — all conditions in a rule must match (storageClass, capacity, CSI driver, pvcLabels, volumeType). The first matching policy determines the action.',
-      file:'internal/resourcepolicies/resource_policies.go:326',
-      code:`# volumePolicy example:
-- conditions:
-    storageClass: ["gp3-csi"]
-    capacity: "10Gi,500Gi"
-  action:
-    type: snapshot`,
-      branches:[
-        {label:'Yes', child:{
-          id:'policy-action', title:'Policy action type?',
-          sub:'Action overrides all other logic',
-          detail:'Four possible actions. "snapshot" routes to CSI or native path. "fs-backup" forces Kopia. "skip" means no protection. "custom" defers to an external plugin.',
-          file:'internal/resourcepolicies/resource_policies.go:40-51',
-          branches:[
-            {label:'snapshot', child:{
-              id:'policy-snap-csi', title:'PV is CSI-backed + EnableCSI?',
-              sub:'Determines CSI vs native path',
-              detail:'When a policy forces "snapshot", the system still decides between CSI and native based on PV type and feature flags.',
-              file:'backup/item_backupper.go:604',
-              branches:[
-                {label:'Yes', child:{
-                  id:'policy-snap-move', title:'SnapshotMoveData = true?',
-                  sub:'Move data to BSL via Kopia?',
-                  detail:'Controls whether the CSI snapshot stays in-cluster or is uploaded to the backup storage location via a DataUpload CR and Kopia.',
-                  file:'pkg/backup/actions/csi/pvc_action.go:375',
-                  branches:[
-                    {label:'Yes', child:{id:'out-dm-policy', outcome:{type:'dm', title:'CSI + Data Mover', sub:'VolumeSnapshot → DataUpload → Kopia → BSL. Async. Portable across clusters.'}}},
-                    {label:'No', child:{id:'out-csi-policy', outcome:{type:'csi', title:'CSI Snapshot (In-Cluster)', sub:'VolumeSnapshot + VSC saved in tar. NOT portable — snapshot must exist in target cluster.'}}}
-                  ]
-                }},
-                {label:'No', child:{id:'out-native-policy', outcome:{type:'native', title:'Native Cloud Snapshot', sub:'VolumeSnapshotter plugin (AWS EBS, GCP PD, Azure) calls cloud API.'}}}
-              ]
-            }},
-            {label:'fs-backup', child:{id:'out-fsb-policy', outcome:{type:'fsb', title:'Kopia FSB (Policy)', sub:'Policy forces FSB. PodVolumeBackup CR created. Node-agent runs Kopia.'}}},
-            {label:'skip', child:{id:'out-skip-policy', outcome:{type:'skip', title:'Skipped (Policy)', sub:'Policy explicitly skips this volume. No data protection.'}}},
-            {label:'custom', child:{id:'out-custom', outcome:{type:'native', title:'Custom Plugin', sub:'External BIA plugin handles volume (e.g., vSphere).'}}}
-          ]
-        }},
-        {label:'No match', child:null} // falls through — handled by ref below
-      ]
-    }},
-    {label:'No', child:null} // falls through
-  ]
-};
-
-// The "no policy" / "no match" subtree (legacy path)
-const LEGACY = {
-  id:'resource-type', title:'Resource type being processed?',
-  sub:'Volume handling differs per GVR',
-  detail:'The backup engine processes items by GroupVersionResource. Pods trigger FSB checks first, PVCs trigger CSI snapshot logic, PVs trigger native VolumeSnapshotter.',
-  file:'backup/item_backupper.go:234-310',
-  branches:[
-    {label:'Pod', child:{
-      id:'default-fsb', title:'DefaultVolumesToFsBackup = true?',
-      sub:'Server flag or BackupSpec field',
-      detail:'Controls opt-in vs opt-out paradigm. When true: all eligible volumes get FSB unless excluded. When false (default): only volumes listed in the opt-in annotation get FSB.',
-      file:'internal/volumehelper/volume_policy_helper.go:291',
-      code:`if !defaultVolumesToFsBackup {
-  return volumeIsInOptInAnnotation(vol)
-}
-return !volumeIsInExcludeAnnotation(vol)`,
-      branches:[
-        {label:'Yes', child:{
-          id:'exclude-check', title:'Volume in exclude annotation?',
-          sub:'backup.velero.io/backup-volumes-excludes',
-          detail:'When DefaultVolumesToFsBackup=true (opt-out mode), this annotation lists volume names to exclude from FSB.',
-          file:'pkg/util/podvolume/pod_volume.go:247',
-          branches:[
-            {label:'Yes', child:{id:'out-skip-excluded', outcome:{type:'skip', title:'FSB Excluded', sub:'Volume explicitly excluded. May still get snapshot via PVC/PV path.'}}},
-            {label:'No', child:{
-              id:'vol-eligible-1', title:'Volume type eligible?',
-              sub:'Excludes HostPath, Secret, ConfigMap...',
-              detail:'HostPath, Secret, ConfigMap, Projected, DownwardAPI, and default-token volumes are never FSB-eligible.',
-              file:'internal/volumehelper/volume_policy_helper.go:433',
-              branches:[
-                {label:'Yes', child:{id:'out-fsb-optout', outcome:{type:'fsb', title:'Kopia FSB', sub:'Opted in by default. PodVolumeBackup CR created. Kopia copies files to BSL.'}}},
-                {label:'No', child:{id:'out-skip-type', outcome:{type:'skip', title:'Ineligible Type', sub:'HostPath, Secret, ConfigMap etc. cannot be file-system backed up.'}}}
-              ]
-            }}
-          ]
-        }},
-        {label:'No', child:{
-          id:'optin-check', title:'Volume in opt-in annotation?',
-          sub:'backup.velero.io/backup-volumes',
-          detail:'When DefaultVolumesToFsBackup=false (default), only volumes explicitly listed in this annotation get FSB.',
-          file:'pkg/util/podvolume/pod_volume.go:233',
-          branches:[
-            {label:'Yes', child:{
-              id:'vol-eligible-2', title:'Volume type eligible?',
-              sub:'Excludes HostPath, Secret, ConfigMap...',
-              detail:'Same eligibility check as above.',
-              file:'internal/volumehelper/volume_policy_helper.go:433',
-              branches:[
-                {label:'Yes', child:{id:'out-fsb-optin', outcome:{type:'fsb', title:'Kopia FSB', sub:'Explicitly opted in via annotation. PodVolumeBackup CR created.'}}},
-                {label:'No', child:{id:'out-skip-type-2', outcome:{type:'skip', title:'Ineligible Type', sub:'Volume type not supported for FSB.'}}}
-              ]
-            }},
-            {label:'No', child:{id:'out-no-fsb', outcome:{type:'skip', title:'Not Opted In', sub:'Not in annotation, DefaultVolumesToFsBackup=false. May still get snapshot via PVC/PV.'}}}
-          ]
-        }}
-      ]
-    }},
-    {label:'PVC', child:{
-      id:'csi-enabled', title:'EnableCSI = true?',
-      sub:'Feature gate for CSI BIA plugin',
-      detail:'If EnableCSI is not set, the entire CSI snapshot path is skipped. The PVC is still backed up as metadata.',
-      file:'pkg/util/csi/util.go:30',
-      branches:[
-        {label:'Yes', child:{
-          id:'pv-is-csi', title:'PV is CSI-backed?',
-          sub:'pv.Spec.CSI != nil',
-          detail:'CSI BIA checks whether the underlying PV has a CSI volume source. Non-CSI PVs get SkippedNoCSIPVAnnotation.',
-          file:'pkg/backup/actions/csi/pvc_action.go:306',
-          branches:[
-            {label:'Yes', child:{
-              id:'snap-move', title:'SnapshotMoveData = true?',
-              sub:'Upload to BSL via Kopia?',
-              detail:'When true: VolumeSnapshot is transient, data uploaded via DataUpload+Kopia. When false: VolumeSnapshot + VSC saved in backup tar.',
-              file:'pkg/backup/actions/csi/pvc_action.go:375',
-              code:`if boolptr.IsSetToTrue(backup.Spec.SnapshotMoveData) {
-  du := newDataUpload(backup, pvc, vs, ...)
-} else {
-  additionalItems = append(additionalItems, vsRef)
-}`,
-              branches:[
-                {label:'Yes', child:{id:'out-dm', outcome:{type:'dm', title:'CSI + Data Mover', sub:'VolumeSnapshot → DataUpload → Kopia → BSL. Async. Portable.'}}},
-                {label:'No', child:{id:'out-csi-local', outcome:{type:'csi', title:'CSI Snapshot (In-Cluster)', sub:'VS + VSC in tar. Not portable.'}}}
-              ]
-            }},
-            {label:'No', child:{id:'out-no-csi-pv', outcome:{type:'skip', title:'Not CSI-Backed', sub:'PV is in-tree (NFS, EBS legacy). Falls through to native on PV processing.'}}}
-          ]
-        }},
-        {label:'No', child:{id:'out-csi-off', outcome:{type:'skip', title:'CSI Disabled', sub:'EnableCSI not set. No VolumeSnapshot created.'}}}
-      ]
-    }},
-    {label:'PV', child:{
-      id:'pv-csi-skip', title:'CSI-backed + EnableCSI?',
-      sub:'Avoid duplicate with CSI BIA',
-      detail:'takePVSnapshot() skips CSI-backed PVs when CSI is enabled — the CSI BIA already created a VolumeSnapshot for the PVC.',
-      file:'backup/item_backupper.go:604',
-      branches:[
-        {label:'Yes', child:{id:'out-csi-handled', outcome:{type:'csi', title:'Handled by CSI', sub:'PV skipped here — CSI BIA already created VolumeSnapshot on PVC.'}}},
-        {label:'No', child:{
-          id:'native-check', title:'VolumeSnapshotter recognizes PV?',
-          sub:'GetVolumeID() returns non-empty',
-          detail:'Iterates VolumeSnapshotLocations. Each provider plugin calls GetVolumeID(pv). First non-empty match wins.',
-          file:'backup/item_backupper.go:667-688',
-          code:`for _, sl := range snapshotLocations {
-  snapshotter := cache.Get(sl.Spec.Provider)
-  volumeID, _ := snapshotter.GetVolumeID(pv)
-  if volumeID != "" {
-    snapshotter.CreateSnapshot(volumeID, zone, tags)
-    break
+    choices:[
+      { label:'Yes — policy exists', yes:true, next:'policy-match' },
+      { label:'No — no policy', yes:false, next:'resource-type' }
+    ]
+  },
+  { id:'policy-match', title:'Does a policy rule match this volume?',
+    sub:'First-match wins. Conditions: storageClass, capacity, CSI driver, pvcLabels, volumeType.',
+    file:'internal/resourcepolicies/resource_policies.go:326',
+    detail:'Policies are evaluated in order — all conditions in a rule must match.',
+    code:`# volumePolicy example:\n- conditions:\n    storageClass: ["gp3-csi"]\n    capacity: "10Gi,500Gi"\n  action:\n    type: snapshot`,
+    choices:[
+      { label:'Yes — rule matched', yes:true, next:'policy-action' },
+      { label:'No match — fall through', yes:false, next:'resource-type' }
+    ]
+  },
+  { id:'policy-action', title:'What action does the matched policy specify?',
+    sub:'The action completely determines the volume path — no further logic runs.',
+    file:'internal/resourcepolicies/resource_policies.go:40-51',
+    detail:'Four possible actions. "snapshot" routes to CSI or native. "fs-backup" forces Kopia. "skip" = no protection. "custom" = external plugin.',
+    choices:[
+      { label:'snapshot', next:'policy-csi-check' },
+      { label:'fs-backup', outcome:{ type:'fsb', title:'Kopia File System Backup', sub:'Policy forces FSB. PodVolumeBackup CR created. Node-agent runs Kopia uploader to copy files to BSL. Overrides all annotations.' }},
+      { label:'skip', outcome:{ type:'skip', title:'Volume Skipped — No Protection', sub:'Policy explicitly skips this volume. PV metadata still backed up but data not recoverable on restore.' }},
+      { label:'custom', outcome:{ type:'native', title:'Custom Plugin Handles Volume', sub:'Velero does not snapshot or FSB. External BIA plugin (e.g., vSphere) manages the volume.' }}
+    ]
+  },
+  { id:'policy-csi-check', title:'Is the PV CSI-backed and EnableCSI = true?',
+    sub:'Policy said "snapshot" — determine CSI vs native path.',
+    file:'backup/item_backupper.go:604',
+    detail:'When a policy forces "snapshot", the system still decides between CSI and native based on PV type and feature flags.',
+    choices:[
+      { label:'Yes — CSI path', yes:true, next:'snap-move-data' },
+      { label:'No — native path', yes:false, outcome:{ type:'native', title:'Native Cloud Snapshot', sub:'VolumeSnapshotter plugin (AWS EBS, GCP PD, Azure) calls cloud API to create snapshot.' }}
+    ]
+  },
+  { id:'resource-type', title:'What resource type is being processed?',
+    sub:'Volume handling differs per resource type. Each type has its own code path.',
+    file:'backup/item_backupper.go:234-310',
+    detail:'Pods trigger FSB checks, PVCs trigger CSI snapshot, PVs trigger native VolumeSnapshotter. These run independently as each resource is backed up.',
+    choices:[
+      { label:'Pod → FSB path', next:'default-fsb' },
+      { label:'PVC → CSI path', next:'csi-enabled' },
+      { label:'PV → Native path', next:'pv-csi-skip' }
+    ]
+  },
+  { id:'default-fsb', title:'Is DefaultVolumesToFsBackup = true?',
+    sub:'Server flag --default-volumes-to-fs-backup or per-backup spec field.',
+    file:'internal/volumehelper/volume_policy_helper.go:291',
+    detail:'Controls opt-in (false, default) vs opt-out (true). When true, all eligible volumes get FSB unless excluded by annotation.',
+    code:`if !defaultVolumesToFsBackup {\n  return volumeIsInOptInAnnotation(vol)\n}\nreturn !volumeIsInExcludeAnnotation(vol)`,
+    choices:[
+      { label:'Yes — opt-out mode', yes:true, next:'exclude-ann' },
+      { label:'No — opt-in mode', yes:false, next:'optin-ann' }
+    ]
+  },
+  { id:'exclude-ann', title:'Volume in the exclude annotation?',
+    sub:'Pod annotation: backup.velero.io/backup-volumes-excludes',
+    file:'pkg/util/podvolume/pod_volume.go:247',
+    detail:'Opt-out mode: volumes are backed up UNLESS listed here. Comma-separated volume names.',
+    choices:[
+      { label:'Yes — excluded', yes:true, outcome:{ type:'skip', title:'FSB Excluded', sub:'Volume explicitly excluded from FSB by annotation. May still get snapshot via PVC/PV path.' }},
+      { label:'No — not excluded', yes:false, next:'vol-eligible' }
+    ]
+  },
+  { id:'optin-ann', title:'Volume in the opt-in annotation?',
+    sub:'Pod annotation: backup.velero.io/backup-volumes',
+    file:'pkg/util/podvolume/pod_volume.go:233',
+    detail:'Opt-in mode (default): only volumes explicitly listed get FSB. Most common configuration.',
+    choices:[
+      { label:'Yes — opted in', yes:true, next:'vol-eligible' },
+      { label:'No — not listed', yes:false, outcome:{ type:'skip', title:'Not Opted In — No FSB', sub:'Volume not in opt-in annotation and DefaultVolumesToFsBackup=false. May still get snapshot via PVC/PV path.' }}
+    ]
+  },
+  { id:'vol-eligible', title:'Is the volume type eligible for FSB?',
+    sub:'Excludes: HostPath, Secret, ConfigMap, Projected, DownwardAPI, default-token-*',
+    file:'internal/volumehelper/volume_policy_helper.go:433',
+    detail:'These types are never FSB-eligible — either not portable (HostPath) or not user data (Secrets, ConfigMaps).',
+    choices:[
+      { label:'Yes — eligible', yes:true, outcome:{ type:'fsb', title:'Kopia File System Backup', sub:'PodVolumeBackup CR created per volume. Node-agent DaemonSet runs Kopia to copy files to BSL repo. PV will NOT also get a snapshot (tracked in podVolumeSnapshotTracker).' }},
+      { label:'No — ineligible type', yes:false, outcome:{ type:'skip', title:'Ineligible Volume Type', sub:'HostPath, Secret, ConfigMap, Projected, DownwardAPI cannot be file-system backed up.' }}
+    ]
+  },
+  { id:'csi-enabled', title:'Is EnableCSI feature flag = true?',
+    sub:'Feature gate that enables the CSI BackupItemAction plugin.',
+    file:'pkg/util/csi/util.go:30',
+    detail:'If not set, the entire CSI snapshot path is skipped. PVC still backed up as metadata but no VolumeSnapshot created.',
+    choices:[
+      { label:'Yes — CSI enabled', yes:true, next:'pv-is-csi' },
+      { label:'No — CSI disabled', yes:false, outcome:{ type:'skip', title:'CSI Disabled', sub:'EnableCSI not set. No VolumeSnapshot created. Volume may get native snapshot when PV is processed.' }}
+    ]
+  },
+  { id:'pv-is-csi', title:'Is the underlying PV CSI-backed?',
+    sub:'pv.Spec.CSI != nil — checks for CSI volume source on the PV.',
+    file:'pkg/backup/actions/csi/pvc_action.go:306',
+    detail:'If PV does not have spec.csi, the CSI BIA sets SkippedNoCSIPVAnnotation and returns. Falls through to native snapshot.',
+    choices:[
+      { label:'Yes — CSI PV', yes:true, next:'snap-move-data' },
+      { label:'No — not CSI', yes:false, outcome:{ type:'skip', title:'Not CSI-Backed', sub:'PV is in-tree type (NFS, legacy EBS). CSI BIA skips. May get native snapshot when PV is processed.' }}
+    ]
+  },
+  { id:'snap-move-data', title:'Is SnapshotMoveData = true?',
+    sub:'BackupSpec.SnapshotMoveData — move snapshot data to BSL via Kopia.',
+    file:'pkg/backup/actions/csi/pvc_action.go:375',
+    detail:'When true: CSI VolumeSnapshot is transient, data uploaded via DataUpload CR + Kopia. When false: VS + VSC saved in backup tar.',
+    code:`if boolptr.IsSetToTrue(backup.Spec.SnapshotMoveData) {\n  du := newDataUpload(backup, pvc, vs, ...)\n  // operationID for async tracking\n} else {\n  additionalItems = append(additionalItems, vsRef)\n}`,
+    choices:[
+      { label:'Yes — data mover', yes:true, outcome:{ type:'dm', title:'CSI Snapshot + Kopia Data Mover', sub:'VolumeSnapshot created → DataUpload CR triggers node-agent → Kopia uploads to BSL. ASYNC: Operations controller polls. Snapshot is transient. Backup portable across clusters.' }},
+      { label:'No — in-cluster', yes:false, outcome:{ type:'csi', title:'CSI VolumeSnapshot (In-Cluster)', sub:'VolumeSnapshot + VolumeSnapshotContent saved in backup tar. On restore, VSC used as data source for new PVC. NOT portable — snapshot must exist in target cluster.' }}
+    ]
+  },
+  { id:'pv-csi-skip', title:'Is this PV CSI-backed and EnableCSI = true?',
+    sub:'Avoids duplicate snapshotting — CSI BIA already handled it via PVC.',
+    file:'backup/item_backupper.go:604',
+    detail:'takePVSnapshot() skips CSI PVs when CSI is enabled because the CSI BIA on the PVC already created a VolumeSnapshot.',
+    choices:[
+      { label:'Yes — already handled', yes:true, outcome:{ type:'csi', title:'Handled by CSI Path', sub:'PV skipped in takePVSnapshot() — CSI BIA already created VolumeSnapshot for the corresponding PVC. No duplicate snapshot.' }},
+      { label:'No — try native', yes:false, next:'native-check' }
+    ]
+  },
+  { id:'native-check', title:'Does a VolumeSnapshotter plugin recognize this PV?',
+    sub:'Each VSL provider calls GetVolumeID(pv). First non-empty result wins.',
+    file:'backup/item_backupper.go:667-688',
+    detail:'Iterates VolumeSnapshotLocations. For each, gets VolumeSnapshotter plugin for that provider, calls GetVolumeID(). If non-empty, takes the snapshot.',
+    code:`for _, sl := range snapshotLocations {\n  snapshotter := cache.Get(sl.Spec.Provider)\n  volumeID, _ := snapshotter.GetVolumeID(pv)\n  if volumeID != "" {\n    snapshotter.CreateSnapshot(volumeID, zone, tags)\n    break\n  }\n}`,
+    choices:[
+      { label:'Yes — recognized', yes:true, outcome:{ type:'native', title:'Native Cloud Snapshot', sub:'VolumeSnapshotter plugin (AWS EBS, GCP PD, Azure Disk) calls cloud API. Snapshot ID stored in backup metadata. On restore, new volume created from snapshot.' }},
+      { label:'No — not recognized', yes:false, outcome:{ type:'skip', title:'No Protection', sub:'No FSB opted in, no CSI path, no VolumeSnapshotter recognized the PV. PV metadata backed up but volume data not recoverable.' }}
+    ]
   }
-}`,
-          branches:[
-            {label:'Yes', child:{id:'out-native', outcome:{type:'native', title:'Native Cloud Snapshot', sub:'AWS EBS / GCP PD / Azure Disk via VolumeSnapshotter plugin.'}}},
-            {label:'No', child:{id:'out-skip-final', outcome:{type:'skip', title:'No Protection', sub:'No FSB, no CSI, no native snapshotter. PV metadata backed up but data not recoverable.'}}}
-          ]
-        }}
-      ]
-    }}
-  ]
-};
+];
 
-// Wire the fallthrough references
-TREE.branches[0].child.branches[1].child = LEGACY; // policy yes → no match → legacy
-TREE.branches[1].child = LEGACY; // no policy → legacy
+const N = {};
+TREE.forEach(n => N[n.id] = n);
 
-// ─── FLATTEN for lookup ───
-const NODES = {};
-function walk(n) {
-  if (!n) return;
-  NODES[n.id] = n;
-  if (n.branches) n.branches.forEach(b => walk(b.child));
-}
-walk(TREE);
+// State: which choice is selected per node
+const sel = {};
 
-// ─── STATE: per-node toggle selection ───
-const selections = {}; // nodeId → selected branch index
-
-// ─── RENDER ───
 function render() {
-  document.getElementById('canvas').innerHTML = renderNode(TREE, true);
-  updatePath();
-}
+  // Walk from root, following selections, to build the visible path
+  const path = buildPath();
+  let html = '';
+  path.forEach((step, i) => {
+    const node = N[step.nodeId];
+    const isPast = step.choiceIdx !== undefined && i < path.length - 1;
+    const isActive = step.choiceIdx === undefined && !step.outcome;
+    const isLast = i === path.length - 1;
 
-function renderNode(node, isOnPath) {
-  if (!node) return '';
-  const isOutcome = !!node.outcome;
-  const oc = node.outcome;
+    // Connector
+    if (i > 0) {
+      html += `<div class="connector"><div class="conn-line on"></div></div>`;
+    }
 
-  // Outcome leaf
-  if (isOutcome) {
-    const cls = oc.type === 'fsb' ? 'fsb' : oc.type === 'csi' ? 'csi' : oc.type === 'dm' ? 'dm' : oc.type === 'native' ? 'native' : 'skip';
-    const tagCls = cls;
-    const tagText = oc.type === 'fsb' ? 'Kopia FSB' : oc.type === 'csi' ? 'CSI Snapshot' : oc.type === 'dm' ? 'Data Mover' : oc.type === 'native' ? 'Native Snap' : 'No Protection';
-    return `<div class="node-wrap">
-      <div class="node outcome ${cls}${isOnPath ? ' highlighted' : ' dimmed'}" id="n-${node.id}"
-           onmouseenter="showTip(event,'${node.id}')" onmouseleave="hideTip()">
-        <div class="node-tag ${tagCls}">${tagText}</div>
-        <div class="node-title">${oc.title}</div>
-        <div class="node-sub">${oc.sub}</div>
+    // Outcome
+    if (step.outcome) {
+      const oc = step.outcome;
+      const cls = oc.type;
+      const badge = {fsb:'Kopia FSB',csi:'CSI Snapshot',dm:'Data Mover',native:'Native Snapshot',skip:'No Protection'}[cls] || cls;
+      html += `<div class="ocard ${cls}">
+        <div class="ocard-badge">${badge}</div>
+        <div class="ocard-title">${oc.title}</div>
+        <div class="ocard-sub">${oc.sub}</div>
+      </div>`;
+      return;
+    }
+
+    // Decision node
+    html += `<div class="dnode${isPast ? ' past' : ''}${isActive ? ' active' : ''}" onclick="showInfo('${node.id}')">
+      <div class="dnode-header">
+        <div class="dnode-num">${i + 1}</div>
+        <div class="dnode-title">${node.title}</div>
       </div>
-    </div>`;
+      <div class="dnode-sub">${node.sub}</div>`;
+
+    // Switches
+    html += `<div class="switch-row">`;
+    node.choices.forEach((c, ci) => {
+      const isYes = c.yes === true;
+      const isNo = c.yes === false;
+      const btnType = c.yes === true ? 'yes' : c.yes === false ? 'no' : 'choice';
+      const isChosen = sel[node.id] === ci;
+      html += `<button class="sw-btn ${btnType}${isChosen ? ' active' : ''}" onclick="event.stopPropagation();choose('${node.id}',${ci})">${c.label}</button>`;
+    });
+    html += `</div></div>`;
+  });
+
+  // If the path ends at an active (unresolved) node, show a hint
+  const last = path[path.length - 1];
+  if (last && !last.outcome && sel[last.nodeId] === undefined) {
+    // active — no extra content needed
   }
 
-  // Branch node
-  const sel = selections[node.id]; // undefined = none selected
-  let html = `<div class="node-wrap">
-    <div class="node${isOnPath ? ' highlighted' : ' dimmed'}" id="n-${node.id}"
-         onmouseenter="showTip(event,'${node.id}')" onmouseleave="hideTip()">
-      <div class="node-tag q">Decision</div>
-      <div class="node-title">${node.title}</div>
-      <div class="node-sub">${node.sub || ''}</div>
-    </div>`;
-
-  if (node.branches && node.branches.length > 0) {
-    // Toggle row
-    html += `<div class="vline${isOnPath && sel !== undefined ? ' on' : ''}" style="height:8px"></div>`;
-    html += `<div class="toggle-row">`;
-    node.branches.forEach((b, i) => {
-      const isYes = b.label === 'Yes';
-      const isNo = b.label === 'No' || b.label === 'No match';
-      const btnCls = isYes ? 'yes' : isNo ? 'no' : 'choice';
-      const isActive = sel === i;
-      html += `<button class="toggle-btn ${btnCls}${isActive ? ' active' : ''}" onclick="toggle('${node.id}',${i})">${b.label}</button>`;
-    });
-    html += `</div>`;
-
-    // Connector lines down to children
-    html += `<div class="vline" style="height:8px"></div>`;
-
-    // Children
-    html += `<div class="branch-wrap">`;
-    node.branches.forEach((b, i) => {
-      const childOnPath = isOnPath && sel === i;
-      html += `<div class="branch-arm">`;
-      html += renderNode(b.child, childOnPath);
-      html += `</div>`;
-    });
-    html += `</div>`;
-  }
-
-  html += `</div>`;
-  return html;
+  document.getElementById('flow').innerHTML = html;
+  updateCrumbs(path);
 }
 
-function toggle(nodeId, branchIdx) {
-  if (selections[nodeId] === branchIdx) {
-    delete selections[nodeId]; // deselect
-  } else {
-    selections[nodeId] = branchIdx;
+function buildPath() {
+  const path = [];
+  let currentId = TREE[0].id;
+  while (currentId) {
+    const node = N[currentId];
+    if (!node) break;
+    const ci = sel[node.id];
+    if (ci === undefined) {
+      path.push({ nodeId: node.id });
+      break; // active node — stop here
+    }
+    const choice = node.choices[ci];
+    if (choice.outcome) {
+      path.push({ nodeId: node.id, choiceIdx: ci });
+      path.push({ nodeId: node.id + '-out', outcome: choice.outcome });
+      break;
+    }
+    path.push({ nodeId: node.id, choiceIdx: ci });
+    currentId = choice.next;
   }
-  // Clear selections in branches that are no longer on the active path
-  pruneSelections();
+  return path;
+}
+
+function choose(nodeId, ci) {
+  // If clicking the same choice, deselect it
+  if (sel[nodeId] === ci) {
+    delete sel[nodeId];
+    // Clear all downstream selections
+    clearDownstream(nodeId);
+  } else {
+    sel[nodeId] = ci;
+    // Clear downstream selections since path changed
+    clearDownstream(nodeId);
+  }
   render();
 }
 
-function pruneSelections() {
-  const onPath = new Set();
-  function walkPath(node) {
-    if (!node || node.outcome) return;
-    onPath.add(node.id);
-    const sel = selections[node.id];
-    if (sel !== undefined && node.branches && node.branches[sel]) {
-      walkPath(node.branches[sel].child);
-    }
-  }
-  walkPath(TREE);
-  for (const id of Object.keys(selections)) {
-    if (!onPath.has(id)) delete selections[id];
-  }
-}
-
-function updatePath() {
-  // Build path description
-  const parts = [];
-  function walkPath(node) {
-    if (!node) return;
-    if (node.outcome) {
-      const oc = node.outcome;
-      parts.push(oc.title);
-      return;
-    }
-    const sel = selections[node.id];
-    if (sel !== undefined && node.branches && node.branches[sel]) {
-      parts.push(node.title + ' → ' + node.branches[sel].label);
-      walkPath(node.branches[sel].child);
-    }
-  }
-  walkPath(TREE);
-  const label = document.getElementById('pathLabel');
-  if (parts.length === 0) {
-    label.textContent = 'Toggle switches to trace a path';
-  } else {
-    label.textContent = parts.join('  →  ');
+function clearDownstream(nodeId) {
+  // Walk from this node's selected choice and clear all selections downstream
+  const node = N[nodeId];
+  if (!node) return;
+  const ci = sel[nodeId];
+  if (ci === undefined) return;
+  const choice = node.choices[ci];
+  if (!choice || !choice.next) return;
+  let cur = choice.next;
+  while (cur) {
+    const n = N[cur];
+    if (!n) break;
+    const s = sel[n.id];
+    delete sel[n.id];
+    if (s === undefined) break;
+    const c = n.choices[s];
+    if (!c || !c.next) break;
+    cur = c.next;
   }
 }
 
 function resetAll() {
-  for (const k of Object.keys(selections)) delete selections[k];
+  for (const k of Object.keys(sel)) delete sel[k];
   render();
+  resetInfo();
 }
 
-// ─── TOOLTIP ───
-function showTip(evt, nodeId) {
-  const node = NODES[nodeId];
-  if (!node) return;
-  const tip = document.getElementById('tooltip');
-  let html = '';
-
-  if (node.outcome) {
-    html = `<h4>${node.outcome.title}</h4><p>${node.outcome.sub}</p>`;
-  } else {
-    html = `<h4>${node.title}</h4>`;
-    if (node.detail) html += `<p>${node.detail}</p>`;
-    if (node.file) html += `<div class="tt-file">${node.file}</div>`;
-    if (node.code) html += `<div class="tt-code">${esc(node.code)}</div>`;
+function updateCrumbs(path) {
+  const el = document.getElementById('pathCrumbs');
+  if (path.length <= 1 && !path[0]?.outcome) {
+    el.innerHTML = 'Select a branch to trace the volume protection path';
+    return;
   }
-
-  tip.innerHTML = html;
-  tip.classList.add('show');
-
-  // Position near cursor
-  const x = Math.min(evt.clientX + 16, window.innerWidth - 380);
-  const y = Math.min(evt.clientY + 16, window.innerHeight - tip.offsetHeight - 20);
-  tip.style.left = x + 'px';
-  tip.style.top = y + 'px';
+  const parts = [];
+  path.forEach(step => {
+    if (step.outcome) {
+      parts.push(`<span>${step.outcome.title}</span>`);
+    } else {
+      const node = N[step.nodeId];
+      const ci = step.choiceIdx;
+      if (ci !== undefined && node) {
+        parts.push(node.choices[ci].label);
+      }
+    }
+  });
+  el.innerHTML = parts.join(' → ');
 }
 
-function hideTip() {
-  document.getElementById('tooltip').classList.remove('show');
+function showInfo(nodeId) {
+  const node = N[nodeId];
+  if (!node) return;
+  const ip = document.getElementById('infoPanel');
+  let html = `<div class="ip-section"><h3>Decision Node</h3><p style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px">${node.title}</p><p>${node.detail || node.sub}</p></div>`;
+  if (node.file) html += `<div class="ip-section"><h3>Source File</h3><p style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--blue)">${node.file}</p></div>`;
+  if (node.code) html += `<div class="ip-section"><h3>Code</h3><div class="ip-code">${esc(node.code)}</div></div>`;
+  html += `<div class="ip-section"><h3>Branches</h3>`;
+  node.choices.forEach(c => {
+    const dest = c.outcome ? c.outcome.title : (c.next ? N[c.next]?.title || c.next : '?');
+    html += `<p style="margin-bottom:4px"><strong style="color:var(--text)">${c.label}</strong> → ${dest}</p>`;
+  });
+  html += `</div>`;
+  ip.innerHTML = html;
+}
+
+function resetInfo() {
+  document.getElementById('infoPanel').innerHTML = `
+    <div class="ip-section"><h3>Volume Decision Tree</h3>
+      <p>Toggle the switches on each decision node to trace the path your configuration takes. Click any node to see source code details.</p>
+    </div>
+    <div class="ip-section"><h3>Key Config Fields</h3>
+      <table class="ip-table">
+        <tr><td>spec.resourcePolicy</td><td>ConfigMap with volume policies</td></tr>
+        <tr><td>spec.defaultVolumesToFsBackup</td><td>Opt-in (false) vs opt-out (true)</td></tr>
+        <tr><td>spec.snapshotMoveData</td><td>Upload CSI snapshot to BSL</td></tr>
+        <tr><td>spec.snapshotVolumes</td><td>Enable/disable all snapshots</td></tr>
+      </table>
+    </div>
+    <div class="ip-section"><h3>Pod Annotations</h3>
+      <table class="ip-table">
+        <tr><td>backup.velero.io/backup-volumes</td><td>Opt-in volumes (comma-sep)</td></tr>
+        <tr><td>backup.velero.io/backup-volumes-excludes</td><td>Opt-out volumes</td></tr>
+      </table>
+    </div>`;
 }
 
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
