@@ -184,6 +184,11 @@
   .step.sim-visited { opacity: 0.5; }
   .step.sim-current { opacity: 1; }
 
+  /* Error path steps get red tint */
+  .step.error-path { background: rgba(248,113,113,0.06); border-color: var(--red-dim); }
+  .step.error-path .step-title { color: var(--red); }
+  .step.error-path.sim-current { border-color: var(--red); box-shadow: 0 0 12px rgba(248,113,113,0.2); }
+
   @keyframes stepPulse {
     0% { transform: scale(1); }
     30% { transform: scale(1.04); }
@@ -415,6 +420,45 @@
   .speed-control { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); }
   .speed-control input[type="range"] { width: 60px; accent-color: var(--c-main); }
 
+  /* ── Live CR panel ── */
+  .cr-panel {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 16px; overflow: hidden;
+  }
+  .cr-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.6px; color: var(--text-dim);
+  }
+  .cr-panel-body { padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.6; }
+  .cr-field { display: flex; gap: 6px; }
+  .cr-key { color: var(--text-dim); min-width: 110px; }
+  .cr-val { color: var(--text); transition: color 0.3s; }
+  .cr-val.changed { color: var(--green); }
+  .cr-val.error { color: var(--red); }
+
+  /* Tracker badge */
+  .tracker-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; padding: 2px 8px; border-radius: 4px;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text-dim); transition: all 0.3s;
+  }
+  .tracker-badge.active { border-color: var(--c-queue-dim); color: var(--c-queue); }
+  .tracker-badge .tracker-count { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+
+  /* Nav step buttons */
+  .step-nav-btn {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-muted); font-size: 16px; width: 28px; height: 28px;
+    border-radius: 5px; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; transition: all 0.15s;
+    font-family: inherit; line-height: 1;
+  }
+  .step-nav-btn:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); border-color: var(--text-dim); }
+  .step-nav-btn:disabled { opacity: 0.25; cursor: default; }
+
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -549,7 +593,9 @@
     </div>
     <div class="ctrl-sep"></div>
     <button class="ctrl-btn" onclick="togglePause()" id="pauseBtn" disabled>Pause</button>
-    <button class="ctrl-btn" onclick="stepForward()" id="stepBtn" disabled>Step</button>
+    <button class="step-nav-btn" onclick="stepBack()" id="prevBtn" disabled title="Previous step">&#8592;</button>
+    <button class="step-nav-btn" onclick="stepForward()" id="nextBtn" disabled title="Next step">&#8594;</button>
+    <div class="ctrl-sep"></div>
     <button class="ctrl-btn" onclick="resetSim()">Reset</button>
   </div>
 </div>
@@ -1301,163 +1347,170 @@ const CTRL_META = {
   final: { color: '#fb923c', label: 'Finalizer Controller' }
 };
 
+// ─── CR STATE per step ───
+// Each sim step can carry a `cr` object showing the Backup CR status at that point.
+// Fields: phase, queuePos, startTs, completionTs, validationErrors, progress, failureReason
+// Only include fields that CHANGED at this step.
+function makeCR(overrides) { return Object.assign({}, overrides); }
+
 // ─── SIMULATION PATHS ───
-// handoffBanner: id of the handoff-banner element to show, plus the phase label to display
 const SIM_PATHS = {
   'happy': {
     label: 'Happy Path — No async ops, no errors',
     steps: [
-      { id: 'receive-new' },
-      { id: 'assign-queue-pos' },
-      { id: 'concurrency-check' },
-      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
-      { id: 'pickup-ready' },
-      { id: 'validate' },
-      { id: 'validation-gate' },
-      { id: 'run-backup' },
-      { id: 'backup-engine' },
-      { id: 'per-item' },
-      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'Finalizing' } },
-      { id: 'finalize-pickup' },
-      { id: 'process-async-results' },
-      { id: 'mark-complete' }
+      { id: 'receive-new', cr: { phase: '', queuePos: 0 }, tracker: { running: 0 } },
+      { id: 'assign-queue-pos', cr: { phase: 'Queued', queuePos: 1 }, tracker: { running: 0 } },
+      { id: 'concurrency-check', cr: { phase: 'Queued', queuePos: 1 }, tracker: { running: 0 } },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' }, cr: { phase: 'ReadyToStart', queuePos: 0 }, tracker: { running: 1 } },
+      { id: 'pickup-ready', cr: { phase: 'ReadyToStart' }, tracker: { running: 1 } },
+      { id: 'validate', cr: { phase: 'ReadyToStart' }, tracker: { running: 1 } },
+      { id: 'validation-gate', cr: { phase: 'InProgress', startTs: 'T+3s' }, tracker: { running: 1 } },
+      { id: 'run-backup', cr: { phase: 'InProgress' }, tracker: { running: 1 } },
+      { id: 'backup-engine', cr: { phase: 'InProgress', progress: '0/142 items' }, tracker: { running: 1 } },
+      { id: 'per-item', cr: { phase: 'InProgress', progress: '87/142 items' }, tracker: { running: 1 } },
+      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'Finalizing' }, cr: { phase: 'Finalizing', progress: '142/142 items' }, tracker: { running: 0, postProc: 1 } },
+      { id: 'finalize-pickup', cr: { phase: 'Finalizing' }, tracker: { running: 0, postProc: 1 } },
+      { id: 'process-async-results', cr: { phase: 'Finalizing' }, tracker: { running: 0, postProc: 1 } },
+      { id: 'mark-complete', cr: { phase: 'Completed', completionTs: 'T+35s' }, tracker: { running: 0 } }
     ]
   },
   'validation-fail': {
     label: 'Validation Failure — BSL missing or invalid spec',
+    errorAfter: 6,
     steps: [
-      { id: 'receive-new' },
-      { id: 'assign-queue-pos' },
-      { id: 'concurrency-check' },
-      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
-      { id: 'pickup-ready' },
-      { id: 'validate' },
-      { id: 'validation-gate' },
-      { id: 'failed-validation' }
+      { id: 'receive-new', cr: { phase: '' }, tracker: { running: 0 } },
+      { id: 'assign-queue-pos', cr: { phase: 'Queued', queuePos: 1 }, tracker: { running: 0 } },
+      { id: 'concurrency-check', cr: { phase: 'Queued' }, tracker: { running: 0 } },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' }, cr: { phase: 'ReadyToStart', queuePos: 0 }, tracker: { running: 1 } },
+      { id: 'pickup-ready', cr: { phase: 'ReadyToStart' }, tracker: { running: 1 } },
+      { id: 'validate', cr: { phase: 'ReadyToStart', validationErrors: ['BSL "default" not found'] }, tracker: { running: 1 } },
+      { id: 'validation-gate', cr: { phase: 'FailedValidation', validationErrors: ['BSL "default" not found'] }, tracker: { running: 1 } },
+      { id: 'failed-validation', cr: { phase: 'FailedValidation', completionTs: 'T+5s' }, tracker: { running: 0 } }
     ]
   },
   'partial-fail': {
     label: 'Partial Failure — Some items failed, no async ops',
     steps: [
-      { id: 'receive-new' },
-      { id: 'assign-queue-pos' },
-      { id: 'concurrency-check' },
-      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
-      { id: 'pickup-ready' },
-      { id: 'validate' },
-      { id: 'validation-gate' },
-      { id: 'run-backup' },
-      { id: 'backup-engine' },
-      { id: 'per-item' },
-      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'FinalizingPartiallyFailed' } },
-      { id: 'finalize-pickup' },
-      { id: 'process-async-results' },
-      { id: 'mark-complete' }
+      { id: 'receive-new', cr: { phase: '' }, tracker: { running: 0 } },
+      { id: 'assign-queue-pos', cr: { phase: 'Queued', queuePos: 1 }, tracker: { running: 0 } },
+      { id: 'concurrency-check', cr: { phase: 'Queued' }, tracker: { running: 0 } },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' }, cr: { phase: 'ReadyToStart', queuePos: 0 }, tracker: { running: 1 } },
+      { id: 'pickup-ready', cr: { phase: 'ReadyToStart' }, tracker: { running: 1 } },
+      { id: 'validate', cr: { phase: 'ReadyToStart' }, tracker: { running: 1 } },
+      { id: 'validation-gate', cr: { phase: 'InProgress', startTs: 'T+3s' }, tracker: { running: 1 } },
+      { id: 'run-backup', cr: { phase: 'InProgress' }, tracker: { running: 1 } },
+      { id: 'backup-engine', cr: { phase: 'InProgress', progress: '0/142 items' }, tracker: { running: 1 } },
+      { id: 'per-item', cr: { phase: 'InProgress', progress: '139/142 items', warnings: 3 }, tracker: { running: 1 } },
+      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'FinalizingPartiallyFailed' }, cr: { phase: 'FinalizingPartiallyFailed', progress: '139/142 items', warnings: 3, errors: 3 }, tracker: { running: 0, postProc: 1 } },
+      { id: 'finalize-pickup', cr: { phase: 'FinalizingPartiallyFailed' }, tracker: { running: 0, postProc: 1 } },
+      { id: 'process-async-results', cr: { phase: 'FinalizingPartiallyFailed' }, tracker: { running: 0, postProc: 1 } },
+      { id: 'mark-complete', cr: { phase: 'PartiallyFailed', completionTs: 'T+35s' }, tracker: { running: 0 } }
     ]
   },
   'fatal': {
     label: 'Fatal Error — Plugin crash or storage failure',
+    errorAfter: 10,
     steps: [
-      { id: 'receive-new' },
-      { id: 'assign-queue-pos' },
-      { id: 'concurrency-check' },
-      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
-      { id: 'pickup-ready' },
-      { id: 'validate' },
-      { id: 'validation-gate' },
-      { id: 'run-backup' },
-      { id: 'backup-engine' },
-      { id: 'per-item' },
-      { id: 'determine-phase' },
-      { id: 'fatal-error' }
+      { id: 'receive-new', cr: { phase: '' }, tracker: { running: 0 } },
+      { id: 'assign-queue-pos', cr: { phase: 'Queued', queuePos: 1 }, tracker: { running: 0 } },
+      { id: 'concurrency-check', cr: { phase: 'Queued' }, tracker: { running: 0 } },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' }, cr: { phase: 'ReadyToStart', queuePos: 0 }, tracker: { running: 1 } },
+      { id: 'pickup-ready', cr: { phase: 'ReadyToStart' }, tracker: { running: 1 } },
+      { id: 'validate', cr: { phase: 'ReadyToStart' }, tracker: { running: 1 } },
+      { id: 'validation-gate', cr: { phase: 'InProgress', startTs: 'T+3s' }, tracker: { running: 1 } },
+      { id: 'run-backup', cr: { phase: 'InProgress' }, tracker: { running: 1 } },
+      { id: 'backup-engine', cr: { phase: 'InProgress', progress: '0/142 items' }, tracker: { running: 1 } },
+      { id: 'per-item', cr: { phase: 'InProgress', progress: '42/142 items' }, tracker: { running: 1 } },
+      { id: 'determine-phase', cr: { phase: 'Failed', failureReason: 'plugin manager: unable to get BackupItemActionsV2' }, tracker: { running: 1 } },
+      { id: 'fatal-error', cr: { phase: 'Failed', completionTs: 'T+12s', failureReason: 'plugin manager: unable to get BackupItemActionsV2' }, tracker: { running: 0 } }
     ]
   },
   'async': {
     label: 'CSI Snapshot (in-cluster) — VolumeSnapshot stays local',
     steps: [
-      { id: 'receive-new' },
-      { id: 'assign-queue-pos' },
-      { id: 'concurrency-check' },
-      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
-      { id: 'pickup-ready' },
-      { id: 'validate' },
-      { id: 'validation-gate' },
-      { id: 'run-backup' },
-      { id: 'backup-engine' },
-      { id: 'per-item' },
-      { id: 'vol-policy-check' },
-      { id: 'vol-csi-snapshot' },
-      { id: 'vol-csi-local' },
-      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'Finalizing' } },
-      { id: 'finalize-pickup' },
-      { id: 'process-async-results' },
-      { id: 'mark-complete' }
+      { id: 'receive-new', cr: { phase: '' }, tracker: { running: 0 } },
+      { id: 'assign-queue-pos', cr: { phase: 'Queued', queuePos: 1 } },
+      { id: 'concurrency-check', cr: { phase: 'Queued' } },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' }, cr: { phase: 'ReadyToStart' }, tracker: { running: 1 } },
+      { id: 'pickup-ready', cr: { phase: 'ReadyToStart' } },
+      { id: 'validate', cr: { phase: 'ReadyToStart' } },
+      { id: 'validation-gate', cr: { phase: 'InProgress', startTs: 'T+3s' } },
+      { id: 'run-backup', cr: { phase: 'InProgress' } },
+      { id: 'backup-engine', cr: { phase: 'InProgress', progress: '0/98 items' } },
+      { id: 'per-item', cr: { phase: 'InProgress', progress: '45/98 items' } },
+      { id: 'vol-policy-check', cr: { phase: 'InProgress', progress: '60/98 items' } },
+      { id: 'vol-csi-snapshot', cr: { phase: 'InProgress', csiSnapshots: '1 creating' } },
+      { id: 'vol-csi-local', cr: { phase: 'InProgress', csiSnapshots: '1 ready' } },
+      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'Finalizing' }, cr: { phase: 'Finalizing', progress: '98/98 items' }, tracker: { running: 0, postProc: 1 } },
+      { id: 'finalize-pickup', cr: { phase: 'Finalizing' } },
+      { id: 'process-async-results', cr: { phase: 'Finalizing' } },
+      { id: 'mark-complete', cr: { phase: 'Completed', completionTs: 'T+40s', csiSnapshots: '1 completed' }, tracker: { running: 0 } }
     ]
   },
   'kopia-fsb': {
     label: 'Kopia File System Backup — Pod volumes via node-agent',
     steps: [
-      { id: 'receive-new' },
-      { id: 'assign-queue-pos' },
-      { id: 'concurrency-check' },
-      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
-      { id: 'pickup-ready' },
-      { id: 'validate' },
-      { id: 'validation-gate' },
-      { id: 'run-backup' },
-      { id: 'backup-engine' },
-      { id: 'per-item' },
-      { id: 'vol-policy-check' },
-      { id: 'vol-pod-fsb' },
-      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'Finalizing' } },
-      { id: 'finalize-pickup' },
-      { id: 'process-async-results' },
-      { id: 'mark-complete' }
+      { id: 'receive-new', cr: { phase: '' }, tracker: { running: 0 } },
+      { id: 'assign-queue-pos', cr: { phase: 'Queued', queuePos: 1 } },
+      { id: 'concurrency-check', cr: { phase: 'Queued' } },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' }, cr: { phase: 'ReadyToStart' }, tracker: { running: 1 } },
+      { id: 'pickup-ready', cr: { phase: 'ReadyToStart' } },
+      { id: 'validate', cr: { phase: 'ReadyToStart' } },
+      { id: 'validation-gate', cr: { phase: 'InProgress', startTs: 'T+3s' } },
+      { id: 'run-backup', cr: { phase: 'InProgress' } },
+      { id: 'backup-engine', cr: { phase: 'InProgress', progress: '0/142 items' } },
+      { id: 'per-item', cr: { phase: 'InProgress', progress: '30/142 items' } },
+      { id: 'vol-policy-check', cr: { phase: 'InProgress', progress: '45/142 items' } },
+      { id: 'vol-pod-fsb', cr: { phase: 'InProgress', progress: '45/142 items', pvbs: '2 in-progress' } },
+      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'Finalizing' }, cr: { phase: 'Finalizing', progress: '142/142 items', pvbs: '2 completed' }, tracker: { running: 0, postProc: 1 } },
+      { id: 'finalize-pickup', cr: { phase: 'Finalizing' } },
+      { id: 'process-async-results', cr: { phase: 'Finalizing' } },
+      { id: 'mark-complete', cr: { phase: 'Completed', completionTs: 'T+55s' }, tracker: { running: 0 } }
     ]
   },
   'datamover': {
     label: 'CSI + Data Mover — Snapshot → Kopia upload to BSL',
     steps: [
-      { id: 'receive-new' },
-      { id: 'assign-queue-pos' },
-      { id: 'concurrency-check' },
-      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
-      { id: 'pickup-ready' },
-      { id: 'validate' },
-      { id: 'validation-gate' },
-      { id: 'run-backup' },
-      { id: 'backup-engine' },
-      { id: 'per-item' },
-      { id: 'vol-policy-check' },
-      { id: 'vol-csi-snapshot' },
-      { id: 'vol-csi-datamover' },
-      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-ops', phase: 'WaitingForPluginOps' } },
-      { id: 'poll-ops' },
-      { id: 'ops-complete', handoffBanner: { el: 'handoff-ops-final', phase: 'Finalizing' } },
-      { id: 'finalize-pickup' },
-      { id: 'process-async-results' },
-      { id: 'mark-complete' }
+      { id: 'receive-new', cr: { phase: '' }, tracker: { running: 0 } },
+      { id: 'assign-queue-pos', cr: { phase: 'Queued', queuePos: 1 } },
+      { id: 'concurrency-check', cr: { phase: 'Queued' } },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' }, cr: { phase: 'ReadyToStart' }, tracker: { running: 1 } },
+      { id: 'pickup-ready', cr: { phase: 'ReadyToStart' } },
+      { id: 'validate', cr: { phase: 'ReadyToStart' } },
+      { id: 'validation-gate', cr: { phase: 'InProgress', startTs: 'T+3s' } },
+      { id: 'run-backup', cr: { phase: 'InProgress' } },
+      { id: 'backup-engine', cr: { phase: 'InProgress', progress: '0/98 items' } },
+      { id: 'per-item', cr: { phase: 'InProgress', progress: '30/98 items' } },
+      { id: 'vol-policy-check', cr: { phase: 'InProgress', progress: '45/98 items' } },
+      { id: 'vol-csi-snapshot', cr: { phase: 'InProgress', csiSnapshots: '1 creating', asyncOps: '0' } },
+      { id: 'vol-csi-datamover', cr: { phase: 'InProgress', csiSnapshots: '1 ready', asyncOps: '1 in-progress' } },
+      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-ops', phase: 'WaitingForPluginOps' }, cr: { phase: 'WaitingForPluginOps', progress: '98/98 items', asyncOps: '1 in-progress' }, tracker: { running: 0, postProc: 1 } },
+      { id: 'poll-ops', cr: { phase: 'WaitingForPluginOps', asyncOps: '1 in-progress' } },
+      { id: 'ops-complete', handoffBanner: { el: 'handoff-ops-final', phase: 'Finalizing' }, cr: { phase: 'Finalizing', asyncOps: '1 completed' } },
+      { id: 'finalize-pickup', cr: { phase: 'Finalizing' } },
+      { id: 'process-async-results', cr: { phase: 'Finalizing' } },
+      { id: 'mark-complete', cr: { phase: 'Completed', completionTs: 'T+95s' }, tracker: { running: 0 } }
     ]
   },
   'native-snap': {
     label: 'Native Cloud Snapshot — AWS EBS / GCP PD / Azure Disk',
     steps: [
-      { id: 'receive-new' },
-      { id: 'assign-queue-pos' },
-      { id: 'concurrency-check' },
-      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' } },
-      { id: 'pickup-ready' },
-      { id: 'validate' },
-      { id: 'validation-gate' },
-      { id: 'run-backup' },
-      { id: 'backup-engine' },
-      { id: 'per-item' },
-      { id: 'vol-policy-check' },
-      { id: 'vol-native-snapshot' },
-      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'Finalizing' } },
-      { id: 'finalize-pickup' },
-      { id: 'process-async-results' },
-      { id: 'mark-complete' }
+      { id: 'receive-new', cr: { phase: '' }, tracker: { running: 0 } },
+      { id: 'assign-queue-pos', cr: { phase: 'Queued', queuePos: 1 } },
+      { id: 'concurrency-check', cr: { phase: 'Queued' } },
+      { id: 'mark-ready', handoffBanner: { el: 'handoff-queue-main', phase: 'ReadyToStart' }, cr: { phase: 'ReadyToStart' }, tracker: { running: 1 } },
+      { id: 'pickup-ready', cr: { phase: 'ReadyToStart' } },
+      { id: 'validate', cr: { phase: 'ReadyToStart' } },
+      { id: 'validation-gate', cr: { phase: 'InProgress', startTs: 'T+3s' } },
+      { id: 'run-backup', cr: { phase: 'InProgress' } },
+      { id: 'backup-engine', cr: { phase: 'InProgress', progress: '0/76 items' } },
+      { id: 'per-item', cr: { phase: 'InProgress', progress: '30/76 items' } },
+      { id: 'vol-policy-check', cr: { phase: 'InProgress', progress: '40/76 items' } },
+      { id: 'vol-native-snapshot', cr: { phase: 'InProgress', nativeSnapshots: '1 created' } },
+      { id: 'determine-phase', handoffBanner: { el: 'handoff-main-final', phase: 'Finalizing' }, cr: { phase: 'Finalizing', progress: '76/76 items', nativeSnapshots: '1 completed' }, tracker: { running: 0, postProc: 1 } },
+      { id: 'finalize-pickup', cr: { phase: 'Finalizing' } },
+      { id: 'process-async-results', cr: { phase: 'Finalizing' } },
+      { id: 'mark-complete', cr: { phase: 'Completed', completionTs: 'T+35s' }, tracker: { running: 0 } }
     ]
   }
 };
@@ -1594,7 +1647,8 @@ function simulate(pathKey, btnEl) {
 
   document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
   if (btnEl) btnEl.classList.add('active');
-  document.getElementById('stepBtn').disabled = false;
+  document.getElementById('nextBtn').disabled = false;
+  document.getElementById('prevBtn').disabled = true;
   document.getElementById('pauseBtn').disabled = false;
   document.getElementById('pauseBtn').textContent = 'Pause';
 
@@ -1604,25 +1658,73 @@ function simulate(pathKey, btnEl) {
   advanceSim();
 }
 
+function renderCR(simStep, path) {
+  if (!simStep || !simStep.cr) return '';
+  const cr = simStep.cr;
+  const isError = cr.phase === 'Failed' || cr.phase === 'FailedValidation' || cr.phase === 'PartiallyFailed';
+  const phaseColor = isError ? 'error' : (cr.phase !== (simState._prevPhase || '') ? 'changed' : '');
+  simState._prevPhase = cr.phase;
+
+  let fields = '';
+  fields += `<div class="cr-field"><span class="cr-key">phase:</span><span class="cr-val ${phaseColor}">"${cr.phase || ''}"</span></div>`;
+  if (cr.queuePos !== undefined) fields += `<div class="cr-field"><span class="cr-key">queuePosition:</span><span class="cr-val">${cr.queuePos}</span></div>`;
+  if (cr.startTs) fields += `<div class="cr-field"><span class="cr-key">startTimestamp:</span><span class="cr-val changed">${cr.startTs}</span></div>`;
+  if (cr.completionTs) fields += `<div class="cr-field"><span class="cr-key">completionTs:</span><span class="cr-val changed">${cr.completionTs}</span></div>`;
+  if (cr.progress) fields += `<div class="cr-field"><span class="cr-key">progress:</span><span class="cr-val">${cr.progress}</span></div>`;
+  if (cr.validationErrors) fields += `<div class="cr-field"><span class="cr-key">validationErrors:</span><span class="cr-val error">[${cr.validationErrors.map(e=>'"'+e+'"').join(', ')}]</span></div>`;
+  if (cr.failureReason) fields += `<div class="cr-field"><span class="cr-key">failureReason:</span><span class="cr-val error">"${esc(cr.failureReason)}"</span></div>`;
+  if (cr.warnings) fields += `<div class="cr-field"><span class="cr-key">warnings:</span><span class="cr-val" style="color:var(--yellow)">${cr.warnings}</span></div>`;
+  if (cr.errors) fields += `<div class="cr-field"><span class="cr-key">errors:</span><span class="cr-val error">${cr.errors}</span></div>`;
+  if (cr.pvbs) fields += `<div class="cr-field"><span class="cr-key">podVolumeBackups:</span><span class="cr-val">${cr.pvbs}</span></div>`;
+  if (cr.csiSnapshots) fields += `<div class="cr-field"><span class="cr-key">csiSnapshots:</span><span class="cr-val">${cr.csiSnapshots}</span></div>`;
+  if (cr.nativeSnapshots) fields += `<div class="cr-field"><span class="cr-key">volumeSnapshots:</span><span class="cr-val">${cr.nativeSnapshots}</span></div>`;
+  if (cr.asyncOps) fields += `<div class="cr-field"><span class="cr-key">asyncOperations:</span><span class="cr-val">${cr.asyncOps}</span></div>`;
+
+  // Tracker
+  const t = simStep.tracker;
+  let trackerHtml = '';
+  if (t) {
+    const rc = (t.running || 0);
+    const pp = (t.postProc || 0);
+    trackerHtml = `<span class="tracker-badge${rc > 0 ? ' active' : ''}">RunningCount: <span class="tracker-count">${rc}</span></span>`;
+    if (pp > 0) trackerHtml += ` <span class="tracker-badge" style="border-color:var(--c-ops-dim);color:var(--c-ops)">PostProcessing: <span class="tracker-count">${pp}</span></span>`;
+  }
+
+  return `<div class="cr-panel">
+    <div class="cr-panel-header"><span>Backup CR Status</span>${trackerHtml}</div>
+    <div class="cr-panel-body">${fields}</div>
+  </div>`;
+}
+
 function showSimStep() {
   if (!simState) return;
   const path = SIM_PATHS[simState.pathKey];
   const simStep = path.steps[simState.stepIndex];
   const step = STEP_MAP[simStep.id];
+  const isErrorPath = path.errorAfter !== undefined && simState.stepIndex >= path.errorAfter;
 
-  // Mark previous steps visited
+  // Clear previous visual state
+  document.querySelectorAll('.step').forEach(el => {
+    el.classList.remove('sim-current', 'sim-visited', 'sim-active', 'error-path');
+  });
+  hideAllHandoffBanners();
+
+  // Mark previous steps visited, show their handoff banners
   for (let i = 0; i < simState.stepIndex; i++) {
-    const prevEl = document.getElementById(`step-${path.steps[i].id}`);
+    const prev = path.steps[i];
+    const prevEl = document.getElementById(`step-${prev.id}`);
     if (prevEl) {
-      prevEl.classList.remove('sim-current');
       prevEl.classList.add('sim-visited');
+      if (path.errorAfter !== undefined && i >= path.errorAfter) prevEl.classList.add('error-path');
     }
+    if (prev.handoffBanner) showHandoffBanner(prev.handoffBanner.el, prev.handoffBanner.phase);
   }
 
   // Mark current
   const stepEl = document.getElementById(`step-${simStep.id}`);
   if (stepEl) {
     stepEl.classList.add('sim-current', 'sim-active');
+    if (isErrorPath) stepEl.classList.add('error-path');
     setTimeout(() => stepEl.classList.remove('sim-active'), 600);
     stepEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   }
@@ -1637,13 +1739,24 @@ function showSimStep() {
     : `${CTRL_META[step.ctrl].label} → ${step.title}`;
   document.getElementById('currentPhaseText').textContent = phaseText;
 
-  // Show handoff banner if this step triggers one
+  // Show handoff banner for current step
   if (simStep.handoffBanner) {
     showHandoffBanner(simStep.handoffBanner.el, simStep.handoffBanner.phase);
   }
 
-  // Show detail
+  // Show detail with CR panel
   selectStep(simStep.id);
+
+  // Prepend CR panel to detail content
+  const detailEl = document.getElementById('detailContent');
+  const crHtml = renderCR(simStep, path);
+  if (crHtml) {
+    detailEl.innerHTML = crHtml + detailEl.innerHTML;
+  }
+
+  // Update nav button states
+  document.getElementById('prevBtn').disabled = simState.stepIndex <= 0;
+  document.getElementById('nextBtn').disabled = simState.stepIndex >= path.steps.length - 1;
 }
 
 function advanceSim() {
@@ -1654,9 +1767,9 @@ function advanceSim() {
   if (simState.stepIndex >= path.steps.length) {
     document.getElementById('currentPhaseText').textContent = path.label + ' — Complete';
     document.getElementById('simDot').classList.remove('live');
-    document.getElementById('stepBtn').disabled = true;
+    document.getElementById('nextBtn').disabled = true;
     document.getElementById('pauseBtn').disabled = true;
-    simState = null;
+    simState.stepIndex = path.steps.length - 1;
     return;
   }
 
@@ -1683,7 +1796,7 @@ function togglePause() {
   }
 }
 
-function stepForward() {
+function ensurePaused() {
   if (!simState) return;
   if (!simState.paused) {
     simState.paused = true;
@@ -1692,7 +1805,25 @@ function stepForward() {
     document.getElementById('pauseBtn').textContent = 'Play';
     document.getElementById('pauseBtn').classList.add('active');
   }
-  advanceSim();
+}
+
+function stepForward() {
+  if (!simState) return;
+  ensurePaused();
+  const path = SIM_PATHS[simState.pathKey];
+  if (simState.stepIndex < path.steps.length - 1) {
+    advanceSim();
+  }
+}
+
+function stepBack() {
+  if (!simState) return;
+  ensurePaused();
+  if (simState.stepIndex > 0) {
+    simState.stepIndex -= 2; // advanceSim will +1
+    simState._prevPhase = '';
+    advanceSim();
+  }
 }
 
 function resetSim() {
@@ -1700,7 +1831,7 @@ function resetSim() {
   simState = null;
 
   document.querySelectorAll('.step').forEach(el => {
-    el.classList.remove('sim-current', 'sim-visited', 'sim-active', 'selected');
+    el.classList.remove('sim-current', 'sim-visited', 'sim-active', 'selected', 'error-path');
   });
   document.querySelectorAll('.lane').forEach(l => l.classList.remove('active-lane'));
   document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
@@ -1709,7 +1840,8 @@ function resetSim() {
 
   document.getElementById('simDot').classList.remove('live');
   document.getElementById('currentPhaseText').textContent = 'Select a simulation or click a step';
-  document.getElementById('stepBtn').disabled = true;
+  document.getElementById('nextBtn').disabled = true;
+  document.getElementById('prevBtn').disabled = true;
   document.getElementById('pauseBtn').disabled = true;
   document.getElementById('pauseBtn').textContent = 'Pause';
   document.getElementById('pauseBtn').classList.remove('active');
