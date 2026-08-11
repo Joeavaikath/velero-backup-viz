@@ -44,7 +44,7 @@ h1 span{color:var(--text-muted);font-weight:400}
 .concept p{font-size:12px;color:var(--text-muted);line-height:1.5;margin:0}
 
 /* Cards */
-.cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:40px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:40px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;text-decoration:none;color:var(--text);transition:all .2s;display:flex;flex-direction:column}
 .card:hover{border-color:var(--text-dim);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3)}
 .card-icon{font-size:24px;margin-bottom:12px}
@@ -55,6 +55,7 @@ h1 span{color:var(--text-muted);font-weight:400}
 .card:nth-child(1) .card-tag{background:var(--blue-dim);color:var(--blue)}
 .card:nth-child(2) .card-tag{background:var(--green-dim);color:var(--green)}
 .card:nth-child(3) .card-tag{background:var(--orange-dim);color:var(--orange)}
+.card:nth-child(4) .card-tag{background:var(--purple-dim);color:var(--purple)}
 
 /* What this covers */
 .scope{margin-bottom:40px}
@@ -74,10 +75,11 @@ h1 span{color:var(--text-muted);font-weight:400}
 
 <nav>
   <span class="title">Velero Backup</span>
-  <a class="nav-tab active" href="intro.html">Overview</a>
+  <a class="nav-tab active" href="index.html">Overview</a>
   <a class="nav-tab" href="flow.html">Controller Flow</a>
   <a class="nav-tab" href="decision-tree.html">Volume Decision Tree</a>
   <a class="nav-tab" href="timeline.html">Timeline</a>
+  <a class="nav-tab" href="datamover.html">Data Paths</a>
 </nav>
 
 <div class="container">
@@ -133,6 +135,12 @@ h1 span{color:var(--text-muted);font-weight:400}
       <p>Gantt chart showing what runs in parallel during a backup. Dependency arrows show what blocks on what. Annotations explain handoffs and concurrent behavior.</p>
       <div class="card-tag">Gantt + dependencies</div>
     </a>
+    <a class="card" href="datamover.html">
+      <div class="card-icon">&#8644;&#8644;</div>
+      <h3>Data Mover Paths</h3>
+      <p>Compare how data moves from cluster to storage. CSI + Kopia scans the full volume; KubeVirt Datamover uses CBT to move only changed blocks. See both backup and restore flows.</p>
+      <div class="card-tag">Interactive comparison</div>
+    </a>
   </div>
 
   <div class="scope">
@@ -148,6 +156,8 @@ h1 span{color:var(--text-muted);font-weight:400}
       <div class="scope-item"><span class="check">+</span><strong>Volume policies</strong> — ResourcePolicy ConfigMap, match actions</div>
       <div class="scope-item"><span class="check">+</span><strong>Hooks</strong> — pre/post backup hooks on pods per item block</div>
       <div class="scope-item"><span class="check">+</span><strong>Concurrency model</strong> — worker pool, progress goroutine, parallel PVBs</div>
+      <div class="scope-item"><span class="check">+</span><strong>Data mover paths</strong> — CSI + Kopia vs KubeVirt Datamover comparison</div>
+      <div class="scope-item"><span class="check">+</span><strong>KubeVirt CBT</strong> — Changed Block Tracking, incremental qcow2, restore chain</div>
     </div>
   </div>
 
