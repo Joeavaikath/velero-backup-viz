@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Velero — Kind Glossary</title>
+<style>
+:root {
+  --bg: #0f1117; --surface: #161922; --surface2: #1c1f2b; --surface-hover: #222639;
+  --border: #282c3a; --border-light: #333849;
+  --text: #e1e4ed; --text-muted: #8b90a2; --text-dim: #555a6e;
+  --green: #4ade80; --green-dim: #16503a; --green-bg: rgba(74,222,128,.06);
+  --red: #f87171; --red-dim: #5c1e1e; --red-bg: rgba(248,113,113,.06);
+  --blue: #6c8cff; --blue-dim: #2a3766; --blue-bg: rgba(108,140,255,.06);
+  --purple: #c084fc; --purple-dim: #3d2266; --purple-bg: rgba(192,132,252,.06);
+  --orange: #fb923c; --orange-dim: #4d2e12; --orange-bg: rgba(251,146,60,.06);
+  --cyan: #22d3ee; --cyan-dim: #0c3d47; --cyan-bg: rgba(34,211,238,.06);
+  --yellow: #facc15; --yellow-dim: #5c4d10; --yellow-bg: rgba(250,204,21,.06);
+  --pink: #f472b6; --pink-dim: #4d1a3a; --pink-bg: rgba(244,114,182,.06);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column}
+
+nav{height:44px;display:flex;align-items:center;padding:0 24px;border-bottom:1px solid var(--border);gap:6px;flex-shrink:0}
+.nav-tab{font-size:12px;padding:6px 14px;border-radius:6px;text-decoration:none;color:var(--text-muted);border:1px solid transparent;transition:all .15s}
+.nav-tab:hover{color:var(--text);background:var(--surface)}
+.nav-tab.active{background:var(--blue-dim);border-color:var(--blue);color:var(--blue)}
+nav .title{font-size:14px;font-weight:600;margin-right:16px}
+
+.layout{display:flex;flex:1;overflow:hidden}
+.main-area{flex:1;overflow-y:auto;padding:28px 36px 80px}
+.detail-panel{width:400px;border-left:1px solid var(--border);background:var(--surface);overflow-y:auto;flex-shrink:0;padding:20px}
+
+.page-header{margin-bottom:20px}
+.page-header h2{font-size:20px;font-weight:700;letter-spacing:-0.3px;margin-bottom:6px}
+.page-header p{font-size:13px;color:var(--text-muted);line-height:1.6;max-width:720px}
+
+/* Filter bar */
+.filter-bar{display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
+.filter-btn{font-size:11px;font-weight:500;padding:5px 12px;cursor:pointer;border:1px solid var(--border);border-radius:6px;transition:all .15s;font-family:inherit;background:transparent;color:var(--text-muted)}
+.filter-btn:hover{color:var(--text);background:var(--surface-hover)}
+.filter-btn.active{background:var(--surface-hover);color:var(--text);border-color:var(--border-light)}
+.filter-label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px;font-weight:600;margin-right:4px}
+
+.search-box{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:12px;color:var(--text);font-family:inherit;width:200px;outline:none;margin-left:auto}
+.search-box:focus{border-color:var(--blue)}
+.search-box::placeholder{color:var(--text-dim)}
+
+/* Kind cards grid */
+.kind-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+
+.kind-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:14px 16px;cursor:pointer;transition:all .2s;position:relative;
+}
+.kind-card:hover{border-color:var(--border-light);background:var(--surface-hover)}
+.kind-card.selected{outline:2px solid var(--blue);outline-offset:1px}
+
+.kc-top{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.kc-name{font-size:14px;font-weight:600;font-family:'JetBrains Mono',monospace}
+.kc-badge{font-size:9px;font-weight:600;padding:2px 7px;border-radius:4px;text-transform:uppercase;letter-spacing:.4px;flex-shrink:0}
+
+.kc-badge.cat-velero{background:var(--blue-dim);color:var(--blue)}
+.kc-badge.cat-volume{background:var(--cyan-dim);color:var(--cyan)}
+.kc-badge.cat-datamover{background:var(--purple-dim);color:var(--purple)}
+.kc-badge.cat-kubevirt{background:var(--orange-dim);color:var(--orange)}
+.kc-badge.cat-oadp{background:var(--green-dim);color:var(--green)}
+.kc-badge.cat-kubernetes{background:var(--yellow-dim);color:var(--yellow)}
+.kc-badge.cat-concepts{background:var(--pink-dim);color:var(--pink)}
+
+.kc-api{font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;margin-bottom:6px}
+.kc-desc{font-size:11px;color:var(--text-muted);line-height:1.5}
+
+/* Category headers in grid */
+.cat-header{grid-column:1/-1;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);padding:12px 0 2px;border-bottom:1px solid var(--border);margin-top:8px}
+.cat-header:first-child{margin-top:0}
+
+/* Detail panel */
+.dp-section{margin-bottom:18px}
+.dp-section h3{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-dim);margin-bottom:6px;font-weight:600}
+.dp-section p{font-size:12px;line-height:1.6;color:var(--text-muted)}
+.dp-badge{font-size:10px;font-weight:600;padding:3px 8px;border-radius:4px;display:inline-block;margin-bottom:8px}
+.dp-code{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;white-space:pre;overflow-x:auto;color:var(--text-dim);line-height:1.5;max-height:240px}
+.dp-table{width:100%;border-collapse:collapse}
+.dp-table td{font-size:11px;padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.dp-table td:first-child{color:var(--text-dim);white-space:nowrap;width:35%;font-family:'JetBrains Mono',monospace;font-size:10px}
+
+.dp-rel{display:inline-block;font-size:11px;padding:3px 10px;border-radius:5px;margin:2px 4px 2px 0;cursor:pointer;border:1px solid var(--border);background:var(--bg);color:var(--text-muted);transition:all .15s}
+.dp-rel:hover{background:var(--surface-hover);color:var(--text);border-color:var(--border-light)}
+
+.dp-phase{display:inline-block;font-size:10px;font-weight:500;padding:2px 8px;border-radius:4px;margin:2px 3px;font-family:'JetBrains Mono',monospace}
+
+.dp-viz-link{font-size:11px;color:var(--blue);text-decoration:none;display:block;padding:3px 0}
+.dp-viz-link:hover{text-decoration:underline}
+
+.dp-ext-link{font-size:12px;color:var(--blue);text-decoration:none}
+.dp-ext-link:hover{text-decoration:underline}
+
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="title">Velero Backup</span>
+  <a class="nav-tab" href="index.html">Overview</a>
+  <a class="nav-tab" href="flow.html">Controller Flow</a>
+  <a class="nav-tab" href="decision-tree.html">Volume Decision Tree</a>
+  <a class="nav-tab" href="timeline.html">Timeline</a>
+  <a class="nav-tab" href="datamover.html">Data Paths</a>
+  <a class="nav-tab active" href="glossary.html">Glossary</a>
+</nav>
+
+<div class="layout">
+<div class="main-area">
+
+  <div class="page-header">
+    <h2>Kind Glossary</h2>
+    <p>Every Custom Resource, Kubernetes kind, and technical concept involved in Velero backup, restore, and data movement.
+    Click any entry to see details, lifecycle phases, relationships, and links to learn more.</p>
+  </div>
+
+  <div class="filter-bar">
+    <span class="filter-label">Filter</span>
+    <button class="filter-btn active" onclick="setFilter('all',this)">All</button>
+    <button class="filter-btn" onclick="setFilter('velero',this)">Velero Core</button>
+    <button class="filter-btn" onclick="setFilter('volume',this)">Volume Snapshots</button>
+    <button class="filter-btn" onclick="setFilter('datamover',this)">Data Movement</button>
+    <button class="filter-btn" onclick="setFilter('kubevirt',this)">KubeVirt</button>
+    <button class="filter-btn" onclick="setFilter('oadp',this)">OADP</button>
+    <button class="filter-btn" onclick="setFilter('kubernetes',this)">Kubernetes</button>
+    <button class="filter-btn" onclick="setFilter('concepts',this)">Concepts</button>
+    <input class="search-box" type="text" placeholder="Search..." oninput="onSearch(this.value)" id="searchBox">
+  </div>
+
+  <div class="kind-grid" id="kindGrid"></div>
+
+</div>
+
+<div class="detail-panel" id="dp">
+  <div class="dp-section"><h3>Kind Glossary</h3>
+    <p>Click any card to see its full details: API group, lifecycle phases, which controller manages it, relationships to other kinds, and links to external documentation.</p>
+  </div>
+  <div class="dp-section"><h3>Categories</h3>
+    <table class="dp-table">
+      <tr><td><span class="kc-badge cat-velero" style="font-size:8px">Velero</span></td><td>Core backup/restore CRDs</td></tr>
+      <tr><td><span class="kc-badge cat-volume" style="font-size:8px">Volume</span></td><td>CSI snapshots and FSB tracking</td></tr>
+      <tr><td><span class="kc-badge cat-datamover" style="font-size:8px">Data Move</span></td><td>Data movement between cluster and BSL</td></tr>
+      <tr><td><span class="kc-badge cat-kubevirt" style="font-size:8px">KubeVirt</span></td><td>VM-related kinds</td></tr>
+      <tr><td><span class="kc-badge cat-oadp" style="font-size:8px">OADP</span></td><td>OADP operator configuration</td></tr>
+      <tr><td><span class="kc-badge cat-kubernetes" style="font-size:8px">K8s</span></td><td>Built-in Kubernetes resources</td></tr>
+      <tr><td><span class="kc-badge cat-concepts" style="font-size:8px">Concept</span></td><td>Terms and technologies explained</td></tr>
+    </table>
+  </div>
+</div>
+</div>
+
+<script>
+const KINDS = [
+  // ── Velero Core ──
+  { id:'backup', kind:'Backup', api:'velero.io/v1', cat:'velero',
+    short:'Primary CR that drives the backup process. Transitions through phases as four controllers process it.',
+    detail:'A Backup CR represents a single backup operation. When created (via CLI, Schedule, or directly), it enters the controller chain: Queue Controller validates and orders it, Backup Controller runs the engine, Operations Controller polls async work, and Finalizer Controller writes the terminal phase. The backup engine discovers matching resources, processes them through a worker pool, and triggers volume protection (FSB, CSI snapshots, native snapshots) per item.',
+    phases:[ {name:'New',c:'text-dim'}, {name:'InProgress',c:'blue'}, {name:'WaitingForPluginOperations',c:'purple'}, {name:'Finalizing',c:'orange'}, {name:'Completed',c:'green'}, {name:'PartiallyFailed',c:'yellow'}, {name:'Failed',c:'red'}, {name:'FailedValidation',c:'red'} ],
+    controller:'Queue Controller, Backup Controller, Operations Controller, Finalizer Controller',
+    relations:['restore','schedule','bsl','vsl','pvb','du'],
+    vizLinks:[{page:'flow.html',label:'Controller Flow — full lifecycle simulation'},{page:'timeline.html',label:'Timeline — concurrent activity during backup'}],
+    extLinks:[{url:'https://velero.io/docs/main/api-types/backup/',label:'Velero Docs: Backup'}],
+    example:'apiVersion: velero.io/v1\nkind: Backup\nmetadata:\n  name: my-backup\n  namespace: velero\nspec:\n  includedNamespaces: ["my-app"]\n  snapshotMoveData: true\n  storageLocation: default'
+  },
+  { id:'restore', kind:'Restore', api:'velero.io/v1', cat:'velero',
+    short:'Restores resources and volume data from a Backup. Processes items in priority order to satisfy dependencies.',
+    detail:'A Restore CR references a Backup and recreates its contents in the cluster. Resources are restored in a priority order (CRDs first, then namespaces, storage classes, PVs/PVCs, etc.) to satisfy dependencies. Volume data is restored via the reverse path: DataDownload for data-moved volumes, PodVolumeRestore for FSB, or VolumeSnapshot pre-provisioning for in-cluster CSI snapshots.',
+    phases:[ {name:'New',c:'text-dim'}, {name:'InProgress',c:'blue'}, {name:'WaitingForPluginOperations',c:'purple'}, {name:'Finalizing',c:'orange'}, {name:'Completed',c:'green'}, {name:'PartiallyFailed',c:'yellow'}, {name:'Failed',c:'red'} ],
+    controller:'Restore Controller, Operations Controller, Finalizer Controller',
+    relations:['backup','dd','pvr'],
+    extLinks:[{url:'https://velero.io/docs/main/api-types/restore/',label:'Velero Docs: Restore'}],
+    example:'apiVersion: velero.io/v1\nkind: Restore\nmetadata:\n  name: my-restore\nspec:\n  backupName: my-backup\n  includedNamespaces: ["my-app"]'
+  },
+  { id:'schedule', kind:'Schedule', api:'velero.io/v1', cat:'velero',
+    short:'Creates Backup CRs on a cron schedule. Each trigger produces a new Backup with the template spec.',
+    detail:'A Schedule CR contains a cron expression and a Backup template. The Schedule Controller creates a new Backup CR each time the cron fires. The Backup inherits all spec fields from the template. Schedules also manage backup retention via the TTL field.',
+    phases:[ {name:'Enabled',c:'green'}, {name:'Paused',c:'yellow'} ],
+    controller:'Schedule Controller',
+    relations:['backup'],
+    extLinks:[{url:'https://velero.io/docs/main/api-types/schedule/',label:'Velero Docs: Schedule'}]
+  },
+  { id:'bsl', kind:'BackupStorageLocation', api:'velero.io/v1', cat:'velero',
+    short:'Defines where backup data is stored. Typically an object storage bucket (S3, GCS, Azure Blob).',
+    detail:'A BSL points to an object storage bucket where Velero stores backup artifacts: the resource tarball, metadata JSON, log file, and the Kopia repository or qcow2 files for data-moved volumes. Velero validates BSL accessibility before starting a backup. Multiple BSLs can exist for different storage tiers or regions. The BSL also holds the Kopia repository password (via a Secret) for the built-in data mover.',
+    phases:[ {name:'Available',c:'green'}, {name:'Unavailable',c:'red'} ],
+    controller:'Backup Storage Location Controller',
+    relations:['backup','br','du','dd'],
+    extLinks:[{url:'https://velero.io/docs/main/api-types/backupstoragelocation/',label:'Velero Docs: BSL'}]
+  },
+  { id:'vsl', kind:'VolumeSnapshotLocation', api:'velero.io/v1', cat:'velero',
+    short:'Defines where native cloud snapshots are stored. One per cloud provider/region.',
+    detail:'A VSL tells Velero where to create native cloud snapshots (AWS EBS, GCP PD, Azure Disk). During backup, Velero iterates all VSLs and calls GetVolumeID() on each VolumeSnapshotter plugin until one claims the volume. VSLs are NOT used by CSI snapshots or data movers — those use VolumeSnapshotClasses and BSLs respectively.',
+    controller:'Velero Server',
+    relations:['backup','pv'],
+    extLinks:[{url:'https://velero.io/docs/main/api-types/volumesnapshotlocation/',label:'Velero Docs: VSL'}]
+  },
+
+  // ── Volume Snapshots ──
+  { id:'pvb', kind:'PodVolumeBackup', api:'velero.io/v1', cat:'volume',
+    short:'Tracks a filesystem backup of a single pod volume via Kopia. One per volume, processed by node-agent.',
+    detail:'A PodVolumeBackup (PVB) CR is created for each pod volume that qualifies for filesystem backup (opt-in annotation, volume policy, or defaultVolumesToFsBackup=true). The node-agent DaemonSet on the pod\'s node picks up the PVB and runs Kopia to read files from the volume mount and stream them to the Kopia repository in the BSL. Multiple PVBs on different nodes run in parallel. Post-hooks wait for ALL PVBs in an item block to complete.',
+    phases:[ {name:'New',c:'text-dim'}, {name:'InProgress',c:'blue'}, {name:'Completed',c:'green'}, {name:'Failed',c:'red'} ],
+    controller:'Node Agent (DaemonSet)',
+    relations:['backup','br','pod','pvc'],
+    vizLinks:[{page:'decision-tree.html',label:'Volume Decision Tree — when FSB is chosen'},{page:'timeline.html',label:'Timeline — Kopia FSB scenario'}]
+  },
+  { id:'pvr', kind:'PodVolumeRestore', api:'velero.io/v1', cat:'volume',
+    short:'Tracks a filesystem restore of a single pod volume via Kopia. Restores files from the Kopia repository.',
+    detail:'The reverse of PodVolumeBackup. During restore, if a volume was backed up via FSB, a PodVolumeRestore CR is created. The node-agent downloads files from the Kopia repository and writes them to the restored pod\'s volume. An init container is injected into the restored pod to wait for the PVR to complete before main containers start.',
+    phases:[ {name:'New',c:'text-dim'}, {name:'InProgress',c:'blue'}, {name:'Completed',c:'green'}, {name:'Failed',c:'red'} ],
+    controller:'Node Agent (DaemonSet)',
+    relations:['restore','br','pod','pvc']
+  },
+  { id:'vs', kind:'VolumeSnapshot', api:'snapshot.storage.k8s.io/v1', cat:'volume',
+    short:'CSI point-in-time snapshot of a PVC. Created by the CSI BIA plugin during backup.',
+    detail:'A VolumeSnapshot is a Kubernetes CSI resource representing a point-in-time copy of a PVC\'s data. The CSI BackupItemAction plugin creates one for each eligible PVC. The CSI external-snapshotter and storage driver handle provisioning. Velero polls until readyToUse=true.\n\nWith SnapshotMoveData=false, the VS and VSC are saved in the backup tarball. With SnapshotMoveData=true, the VS is transient — data is uploaded via DataUpload, then the VS is deleted.',
+    phases:[ {name:'readyToUse: false',c:'yellow'}, {name:'readyToUse: true',c:'green'} ],
+    controller:'CSI external-snapshotter + storage driver',
+    relations:['vsc','vscl','pvc','du'],
+    vizLinks:[{page:'decision-tree.html',label:'Volume Decision Tree — CSI snapshot path'},{page:'timeline.html',label:'Timeline — CSI scenarios'},{page:'datamover.html',label:'Data Paths — CSI + Kopia backup flow'}],
+    extLinks:[{url:'https://kubernetes.io/docs/concepts/storage/volume-snapshots/',label:'Kubernetes Docs: Volume Snapshots'}]
+  },
+  { id:'vsc', kind:'VolumeSnapshotContent', api:'snapshot.storage.k8s.io/v1', cat:'volume',
+    short:'Backing data for a VolumeSnapshot. Contains the snapshot handle (cloud snapshot ID).',
+    detail:'VolumeSnapshotContent is the cluster-scoped resource that represents the actual snapshot in the storage backend. It contains the snapshot handle (e.g., an EBS snapshot ID). For in-cluster CSI backups, both VS and VSC are included in the backup tar. On restore, the VSC is used as a pre-provisioned data source for a new PVC. For data-moved backups, the VSC is transient and deleted after upload.',
+    controller:'CSI external-snapshotter',
+    relations:['vs','vscl']
+  },
+  { id:'vscl', kind:'VolumeSnapshotClass', api:'snapshot.storage.k8s.io/v1', cat:'volume',
+    short:'Parameters for creating VolumeSnapshots. Analogous to StorageClass but for snapshots.',
+    detail:'Defines the CSI driver and parameters used to create VolumeSnapshots. Velero\'s CSI BIA looks up the VolumeSnapshotClass matching the PVC\'s CSI driver. If multiple classes exist for the same driver, Velero uses the one annotated with velero.io/csi-volumesnapshot-class.',
+    controller:'Cluster administrator (static resource)',
+    relations:['vs','vsc']
+  },
+
+  // ── Data Movement ──
+  { id:'du', kind:'DataUpload', api:'velero.io/v2alpha1', cat:'datamover',
+    short:'Request to upload snapshot data to BSL. The spec.datamover field routes to the correct handler.',
+    detail:'A DataUpload CR represents a request to move volume data from the cluster to the BSL. Created by a BackupItemAction plugin during backup.\n\nThe critical routing field is spec.datamover:\n• Empty or "velero": handled by the built-in node-agent + Kopia path\n• "kubevirt": handled by the kubevirt-datamover-controller\n\nVelero explicitly ignores DataUploads where spec.datamover is not empty and not "velero", allowing other controllers to handle them without conflict. Each DataUpload carries a spec.snapshotType and an operationID for async tracking.',
+    phases:[ {name:'New',c:'text-dim'}, {name:'Accepted',c:'blue'}, {name:'Prepared',c:'blue'}, {name:'InProgress',c:'blue'}, {name:'Completed',c:'green'}, {name:'Failed',c:'red'}, {name:'Canceling',c:'yellow'}, {name:'Canceled',c:'yellow'} ],
+    controller:'Node Agent (datamover=velero) or KDM Controller (datamover=kubevirt)',
+    relations:['backup','vs','bsl','br','vmbackup'],
+    vizLinks:[{page:'datamover.html',label:'Data Paths — both backup flows create DataUploads'},{page:'timeline.html',label:'Timeline — CSI + Data Mover scenario'},{page:'flow.html',label:'Controller Flow — async operations polling'}],
+    example:'apiVersion: velero.io/v2alpha1\nkind: DataUpload\nmetadata:\n  name: du-abc123\nspec:\n  snapshotType: CSI       # or "kubevirt"\n  datamover: ""           # or "kubevirt"\n  sourceNamespace: my-app\n  backupStorageLocation: default'
+  },
+  { id:'dd', kind:'DataDownload', api:'velero.io/v2alpha1', cat:'datamover',
+    short:'Request to download data from BSL to a PVC. Reverse of DataUpload, same routing via spec.datamover.',
+    detail:'The restore-side counterpart of DataUpload. The spec.datamover field routes to the correct handler.\n\nFor the built-in path (datamover=velero): node-agent downloads chunks from the Kopia repository and writes to a new PVC.\n\nFor the kubevirt path (datamover=kubevirt): the kubevirt-datamover-controller downloads the qcow2 chain from BSL, reconstructs the full image via qemu-img rebase, and rebinds the PV.',
+    phases:[ {name:'New',c:'text-dim'}, {name:'Accepted',c:'blue'}, {name:'Prepared',c:'blue'}, {name:'InProgress',c:'blue'}, {name:'Completed',c:'green'}, {name:'Failed',c:'red'}, {name:'Canceling',c:'yellow'}, {name:'Canceled',c:'yellow'} ],
+    controller:'Node Agent (datamover=velero) or KDM Controller (datamover=kubevirt)',
+    relations:['restore','bsl','br','pvc'],
+    vizLinks:[{page:'datamover.html',label:'Data Paths — both restore flows create DataDownloads'}]
+  },
+  { id:'br', kind:'BackupRepository', api:'velero.io/v1', cat:'datamover',
+    short:'Represents a Kopia repository in a BSL for a specific namespace. Manages repo lifecycle and maintenance.',
+    detail:'A BackupRepository CR tracks the state of a Kopia repository within a BSL, scoped to a specific namespace. Velero creates one per (BSL, namespace, uploader type) combination. The repository stores deduplicated chunks from PodVolumeBackup and DataUpload operations. Velero runs periodic maintenance (compaction, garbage collection).',
+    phases:[ {name:'New',c:'text-dim'}, {name:'Ready',c:'green'}, {name:'NotReady',c:'red'} ],
+    controller:'Backup Repository Controller',
+    relations:['bsl','pvb','du']
+  },
+
+  // ── KubeVirt ──
+  { id:'vm', kind:'VirtualMachine', api:'kubevirt.io/v1', cat:'kubevirt',
+    short:'Defines a virtual machine managed by KubeVirt. Contains VM spec, run strategy, and disk definitions.',
+    detail:'A VirtualMachine (VM) CR is the declarative definition of a VM in KubeVirt. It specifies CPU, memory, disks, network interfaces, and run strategy. Each disk references a volume source — typically a PVC containing a disk image. When running, KubeVirt creates a VirtualMachineInstance pod running QEMU.\n\nDuring backup, the kubevirt BIA plugin backs up VM metadata. During restore, the kubevirt-datamover restore plugin temporarily halts the VM to prevent PV binding races while DataDownloads complete.',
+    controller:'KubeVirt virt-controller',
+    relations:['vmi','pvc','vmbackup'],
+    vizLinks:[{page:'datamover.html',label:'Data Paths — KubeVirt Datamover restore halts VM'}],
+    extLinks:[{url:'https://kubevirt.io/user-guide/virtual_machines/virtual_machines/',label:'KubeVirt Docs: Virtual Machines'}]
+  },
+  { id:'vmi', kind:'VirtualMachineInstance', api:'kubevirt.io/v1', cat:'kubevirt',
+    short:'A running instance of a VirtualMachine. Created by virt-controller when the VM should be running.',
+    detail:'The VMI represents the running state of a VM. It runs inside a virt-launcher pod that manages the QEMU process. The VMI\'s existence indicates the VM is running — relevant for CBT because Changed Block Tracking operates on the live QEMU process\'s dirty bitmaps.',
+    controller:'KubeVirt virt-controller, virt-handler DaemonSet',
+    relations:['vm'],
+    extLinks:[{url:'https://kubevirt.io/user-guide/virtual_machines/virtual_machines/#virtualmachineinstance',label:'KubeVirt Docs: VMI'}]
+  },
+  { id:'vmbackup', kind:'VirtualMachineBackup', api:'backup.kubevirt.io/v1alpha1', cat:'kubevirt',
+    short:'Triggers CBT-based backup of a VM\'s disks. Created by the kubevirt-datamover-controller.',
+    detail:'A VirtualMachineBackup CR triggers KubeVirt\'s Changed Block Tracking mechanism (VEP-25). KubeVirt queries the QEMU dirty bitmap for each disk to identify which blocks changed since the last checkpoint. For the first backup, all blocks are dirty (full). For subsequent backups, only changed blocks are identified. The kubevirt-datamover-controller uses this to create incremental qcow2 files via qemu-img.',
+    controller:'KubeVirt CBT controller + kubevirt-datamover-controller',
+    relations:['vm','vmbt','du'],
+    vizLinks:[{page:'datamover.html',label:'Data Paths — KubeVirt Datamover backup flow'}]
+  },
+  { id:'vmbt', kind:'VirtualMachineBackupTracker', api:'backup.kubevirt.io/v1alpha1', cat:'kubevirt',
+    short:'Tracks incremental backup state for a VM. Maintains the CBT checkpoint between backups.',
+    detail:'Persists the CBT checkpoint state between backups. Records which dirty bitmap checkpoint was used for the last backup, so the next backup queries only blocks changed since that point. Created alongside the first VirtualMachineBackup and updated after each success.\n\nThe DPA\'s spec.configuration.kubevirtDatamover.maxIncrementalBackups controls how many incrementals are allowed before forcing a full backup (0 = unlimited).',
+    controller:'kubevirt-datamover-controller',
+    relations:['vmbackup','vm','du']
+  },
+
+  // ── OADP ──
+  { id:'dpa', kind:'DataProtectionApplication', api:'oadp.openshift.io/v1alpha1', cat:'oadp',
+    short:'Primary OADP CR that configures the entire Velero stack: server, node-agent, plugins, BSLs, VSLs.',
+    detail:'The DPA is the single CR the OADP operator watches. It configures which Velero plugins to deploy (aws, gcp, azure, csi, kubevirt, kubevirt-datamover), whether to enable the node-agent, BSL/VSL definitions, feature flags (defaultSnapshotMoveData, defaultVolumesToFsBackup), and cloud credentials (including STS, WIF, Workload Identity).\n\nWhen kubevirt-datamover is in defaultPlugins, the operator deploys the kubevirt-datamover-controller-manager and the plugin init container.',
+    controller:'OADP Operator (DataProtectionApplicationReconciler)',
+    relations:['bsl','vsl'],
+    extLinks:[{url:'https://docs.openshift.com/container-platform/latest/backup_and_restore/application_backup_and_restore/installing/about-installing-oadp.html',label:'OpenShift Docs: OADP'}],
+    example:'apiVersion: oadp.openshift.io/v1alpha1\nkind: DataProtectionApplication\nmetadata:\n  name: oadp-dpa\n  namespace: openshift-adp\nspec:\n  configuration:\n    velero:\n      defaultPlugins:\n        - openshift\n        - csi\n        - kubevirt\n        - kubevirt-datamover\n    nodeAgent:\n      enable: true\n      uploaderType: kopia'
+  },
+
+  // ── Kubernetes ──
+  { id:'pvc', kind:'PersistentVolumeClaim', api:'v1', cat:'kubernetes',
+    short:'Claims storage from a PersistentVolume. The primary target for volume protection during backup.',
+    detail:'PVCs are the main subject of volume protection. Each PVC is evaluated via the volume decision tree: volume policies, annotations, CSI eligibility, and SnapshotMoveData settings determine the protection method.\n\nFor VMs, PVCs typically use volumeMode: Block and are bound to DataVolumes. The kubevirt-datamover plugin intercepts PVCs owned by VMs and routes them through the CBT path.',
+    controller:'PV Controller (kube-controller-manager)',
+    relations:['pv','vs','pvb','du','pod','vm'],
+    vizLinks:[{page:'decision-tree.html',label:'Volume Decision Tree — PVC triggers CSI path'},{page:'datamover.html',label:'Data Paths — PVC is the starting point'}],
+    extLinks:[{url:'https://kubernetes.io/docs/concepts/storage/persistent-volumes/#persistentvolumeclaims',label:'Kubernetes Docs: PVCs'}]
+  },
+  { id:'pv', kind:'PersistentVolume', api:'v1', cat:'kubernetes',
+    short:'Cluster-scoped storage resource. PV type (CSI vs in-tree) determines snapshot path.',
+    detail:'A PV represents storage in the cluster. During backup, the PV type determines the snapshot path: if pv.Spec.CSI is set and EnableCSI=true, the CSI path handles it via the PVC. If not, Velero tries native VolumeSnapshotter plugins by calling GetVolumeID().',
+    controller:'PV Controller (kube-controller-manager)',
+    relations:['pvc','vsl'],
+    vizLinks:[{page:'decision-tree.html',label:'Volume Decision Tree — PV triggers native snapshot path'}]
+  },
+  { id:'pod', kind:'Pod', api:'v1', cat:'kubernetes',
+    short:'Runs containers. Pod volumes are the target for filesystem backup. Hooks run on pods.',
+    detail:'Pods are relevant to backup in two ways: (1) their volumes are candidates for filesystem backup via PodVolumeBackup, and (2) pre/post-backup hooks run on pods within each item block. For VMs, the virt-launcher pod runs QEMU but is not directly backed up.',
+    controller:'kubelet',
+    relations:['pvc','pvb']
+  },
+  { id:'configmap-vp', kind:'ConfigMap (Volume Policy)', api:'v1', cat:'kubernetes',
+    short:'Holds volume policy rules that override all other volume protection logic.',
+    detail:'A ConfigMap containing volumePolicies rules has the highest priority in the volume decision tree. If a matching policy is found, its action overrides all annotation-based and default logic. Actions: snapshot, fs-backup, skip, or custom.\n\nFor the kubevirt datamover, a volume policy with action.type=custom and parameters.datamover=kubevirt routes volumes through the KDM plugin instead of the CSI path.',
+    controller:'Referenced by Backup spec.resourcePolicy',
+    relations:['backup'],
+    vizLinks:[{page:'decision-tree.html',label:'Volume Decision Tree — policy is the first decision'},{page:'datamover.html',label:'Data Paths — volume policy routes to kubevirt'}],
+    example:'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: kubevirt-dm-policy\ndata:\n  policies.yaml: |\n    version: v1\n    volumePolicies:\n      - conditions: {}\n        action:\n          type: custom\n          parameters:\n            datamover: kubevirt'
+  },
+
+  // ── Concepts & Terms ──
+  { id:'c-kopia', kind:'Kopia', api:'', cat:'concepts',
+    short:'Open-source backup tool that provides fast, encrypted, deduplicated backups. Used by Velero\'s node-agent for data transfer.',
+    detail:'Kopia is a standalone backup tool that Velero embeds as a library in its node-agent. It provides content-defined chunking (splits data into variable-size chunks based on content boundaries), deduplication (only uploads chunks not already in the repository), encryption, and compression.\n\nIn Velero, Kopia is used in two paths:\n• Filesystem backup: reads files directly from pod volumes on the host\n• CSI data mover: reads from an intermediate PVC bound to a VolumeSnapshot\n\nKopia replaced Restic as Velero\'s file-system backup tool. Restic support has been removed.',
+    extLinks:[{url:'https://kopia.io/',label:'Kopia — Official Site'},{url:'https://kopia.io/docs/architecture/',label:'Kopia Architecture'},{url:'https://velero.io/docs/main/file-system-backup/',label:'Velero Docs: File System Backup'}]
+  },
+  { id:'c-cbt', kind:'Changed Block Tracking (CBT)', api:'', cat:'concepts',
+    short:'Hypervisor-level mechanism that tracks which disk blocks have been modified since a checkpoint.',
+    detail:'CBT is a QEMU/libvirt feature that maintains a dirty bitmap for each virtual disk. The bitmap records which blocks have been written since the last checkpoint. When a backup is requested, the system queries the bitmap to get only the changed block ranges — no scanning or hashing of the full disk is needed.\n\nThis is fundamentally different from Kopia\'s deduplication: Kopia must read the entire volume to compute chunk hashes, while CBT already knows exactly which blocks changed. For a 500GB disk with 2GB of changes, CBT reads 2GB; Kopia reads 500GB.\n\nIn KubeVirt, CBT is implemented via VEP-25 (Virtio Enhancement Proposal 25) and exposed through the VirtualMachineBackup CR.',
+    extLinks:[{url:'https://libvirt.org/kbase/incrementalbackupinternals.html',label:'libvirt: Incremental Backup Internals'},{url:'https://wiki.qemu.org/Features/IncrementalBackup',label:'QEMU Wiki: Incremental Backup'},{url:'https://github.com/kubevirt/enhancements/pull/25',label:'KubeVirt VEP-25: Changed Block Tracking'}]
+  },
+  { id:'c-qcow2', kind:'qcow2', api:'', cat:'concepts',
+    short:'QEMU Copy-On-Write disk image format. Supports incremental snapshots, sparse allocation, and backing file chains.',
+    detail:'qcow2 (QEMU Copy-On-Write version 2) is the native disk image format for QEMU/KVM virtual machines. Key features for the datamover:\n\n• Backing file chains: an incremental qcow2 file only stores blocks that differ from its parent, forming a chain (base → incr1 → incr2)\n• Sparse allocation: unchanged blocks take zero space on disk\n• qemu-img rebase: collapses a chain into a single image for restore\n• qemu-img convert: converts between formats (qcow2 → raw for block devices)\n\nThe kubevirt-datamover stores each incremental backup as a qcow2 file in the BSL. On restore, it downloads the chain, rebases it into a single image, and writes it to the target PVC.',
+    extLinks:[{url:'https://www.qemu.org/docs/master/system/images.html',label:'QEMU Docs: Disk Images'},{url:'https://wiki.qemu.org/Features/Qcow3',label:'QEMU Wiki: qcow2 Format'}]
+  },
+  { id:'c-csi', kind:'Container Storage Interface (CSI)', api:'', cat:'concepts',
+    short:'Standard API for storage drivers in Kubernetes. Enables portable volume operations including snapshots.',
+    detail:'CSI is the standard interface between Kubernetes and storage providers. CSI drivers implement operations like provisioning volumes, creating snapshots, and expanding volumes. In the Velero context:\n\n• CSI snapshots: the CSI external-snapshotter creates VolumeSnapshot/VolumeSnapshotContent CRs, and the storage driver provisions the actual snapshot\n• CSI data movement: a VolumeSnapshot is created, an intermediate PVC is bound to it, and Kopia reads from that PVC\n• EnableCSI feature gate: must be true for Velero to use the CSI snapshot path\n\nCommon CSI drivers: ebs.csi.aws.com (AWS EBS), pd.csi.storage.gke.io (GCP PD), disk.csi.azure.com (Azure Disk).',
+    extLinks:[{url:'https://kubernetes-csi.github.io/docs/',label:'Kubernetes CSI Developer Docs'},{url:'https://kubernetes.io/blog/2019/01/15/container-storage-interface-ga/',label:'Kubernetes Blog: CSI GA'}]
+  },
+  { id:'c-bsl-concept', kind:'BSL (Backup Storage Location)', api:'', cat:'concepts',
+    short:'Object storage bucket where Velero stores all backup artifacts. The durable destination for data movement.',
+    detail:'A BSL is an object storage bucket (S3, GCS, Azure Blob) configured in Velero. It stores:\n\n• Backup metadata (backup.json) and resource tarball\n• Kopia repository (deduplicated chunks from FSB and CSI data mover)\n• qcow2 files (from the kubevirt datamover)\n• Log files and volume info\n\nThe BSL is the "durable" side of data movement — if the cluster dies, the BSL survives. Both data mover paths (Kopia and kubevirt) ultimately write to the BSL, just in different formats.',
+    relations:['bsl'],
+    extLinks:[{url:'https://velero.io/docs/main/locations/',label:'Velero Docs: Backup Storage Locations'}]
+  },
+  { id:'c-node-agent', kind:'Node Agent', api:'', cat:'concepts',
+    short:'DaemonSet that runs on every node. Hosts the Kopia uploader for filesystem backup and CSI data movement.',
+    detail:'The node-agent is a DaemonSet deployed by OADP/Velero that runs on every node in the cluster. It serves two purposes:\n\n• Filesystem backup (FSB): reads pod volumes directly from the host filesystem (/var/lib/kubelet/pods) and runs Kopia to upload to BSL. Requires privileged mode for host path mounts.\n• CSI data movement: mounts the intermediate PVC from a VolumeSnapshot and runs Kopia to upload to BSL. Does NOT require privileged mode.\n\nThe node-agent is NOT used by the kubevirt datamover — that has its own controller and uploader pods.',
+    relations:['pvb','pvr','du','dd'],
+    extLinks:[{url:'https://velero.io/docs/main/file-system-backup/#setup-file-system-backup',label:'Velero Docs: Node Agent Setup'}]
+  },
+  { id:'c-bia', kind:'BackupItemAction (BIA)', api:'', cat:'concepts',
+    short:'Velero plugin interface that runs custom logic when a specific resource type is backed up.',
+    detail:'A BackupItemAction (BIA) plugin is invoked during backup for each item of a matching resource type. It can modify the item, return additional items to include, or create side-effect resources. Key BIAs in the OADP ecosystem:\n\n• CSI PVC BIA: creates VolumeSnapshot for PVCs, optionally creates DataUpload for data movement\n• KubeVirt VM BIA: backs up VM metadata, handles VM-specific annotations\n• KubeVirt Datamover PVC BIA: intercepts VM PVCs and creates DataUpload with datamover=kubevirt\n\nBIA v2 adds async operation support via operationIDs, allowing operations to continue after the backup engine finishes.',
+    extLinks:[{url:'https://velero.io/docs/main/custom-plugins/',label:'Velero Docs: Custom Plugins'}]
+  },
+  { id:'c-ria', kind:'RestoreItemAction (RIA)', api:'', cat:'concepts',
+    short:'Velero plugin interface that runs custom logic when a specific resource type is restored.',
+    detail:'A RestoreItemAction (RIA) plugin is invoked during restore for each item of a matching resource type. It can modify the item before it\'s applied to the cluster, skip items, or create additional resources. Key RIAs:\n\n• CSI PVC RIA: creates DataDownload for data-moved volumes\n• KubeVirt Datamover VM RIA (plugin 05): halts VMs during restore to prevent PV binding races\n• KubeVirt Datamover VMBackup Discard RIA: prevents VMBackup/Tracker CRs from being restored',
+    extLinks:[{url:'https://velero.io/docs/main/custom-plugins/',label:'Velero Docs: Custom Plugins'}]
+  },
+  { id:'c-sts', kind:'STS / Workload Identity', api:'', cat:'concepts',
+    short:'Cloud-native authentication that avoids long-lived credentials. Used by OADP for BSL and datamover access.',
+    detail:'Instead of static access keys, cloud-native identity uses short-lived tokens issued by the cloud provider:\n\n• AWS STS (Security Token Service): pods assume IAM roles via OIDC federation. OADP uses bound service account tokens projected into pods.\n• GCP WIF (Workload Identity Federation): GKE pods authenticate as Google service accounts via Kubernetes SA binding.\n• Azure Workload Identity: pods authenticate via federated identity credentials on Azure AD applications.\n\nThe kubevirt-datamover-controller supports all three via the OADP operator, which injects the necessary service account token volumes and environment variables.',
+    extLinks:[{url:'https://docs.aws.amazon.com/STS/latest/APIReference/welcome.html',label:'AWS STS Documentation'},{url:'https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity',label:'GCP: Workload Identity'},{url:'https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview',label:'Azure: Workload Identity'}]
+  },
+  { id:'c-olm', kind:'OLM (Operator Lifecycle Manager)', api:'', cat:'concepts',
+    short:'Framework for installing and managing Kubernetes operators. OADP is deployed via OLM on OpenShift.',
+    detail:'OLM manages the lifecycle of operators in a Kubernetes cluster: installation, updates, dependency resolution, and RBAC. OADP is packaged as an OLM bundle containing a ClusterServiceVersion (CSV), CRDs, and RBAC manifests. Users install OADP by subscribing to the oadp-operator catalog, and OLM handles deploying the operator pod and creating the necessary CRDs.',
+    extLinks:[{url:'https://olm.operatorframework.io/',label:'OLM Documentation'},{url:'https://sdk.operatorframework.io/docs/olm-integration/',label:'Operator SDK: OLM Integration'}]
+  }
+];
+
+const BY_ID = {};
+KINDS.forEach(k => BY_ID[k.id] = k);
+
+let curFilter = 'all', curSearch = '';
+
+function setFilter(cat, btn) {
+  curFilter = cat;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderGrid();
+}
+
+function onSearch(val) {
+  curSearch = val.toLowerCase().trim();
+  renderGrid();
+}
+
+function renderGrid() {
+  const cats = ['velero','volume','datamover','kubevirt','oadp','kubernetes','concepts'];
+  const catLabels = { velero:'Velero Core', volume:'Volume Snapshots', datamover:'Data Movement', kubevirt:'KubeVirt', oadp:'OADP', kubernetes:'Kubernetes', concepts:'Concepts & Terms' };
+
+  let html = '';
+  const groups = curFilter === 'all' ? cats : [curFilter];
+
+  groups.forEach(cat => {
+    const items = KINDS.filter(k => k.cat === cat).filter(k => {
+      if (!curSearch) return true;
+      return k.kind.toLowerCase().includes(curSearch) || k.short.toLowerCase().includes(curSearch) || (k.api && k.api.toLowerCase().includes(curSearch));
+    });
+    if (items.length === 0) return;
+
+    if (curFilter === 'all') {
+      html += '<div class="cat-header">' + catLabels[cat] + '</div>';
+    }
+    items.forEach(k => {
+      html += '<div class="kind-card" id="kc-' + k.id + '" onclick="showKind(\'' + k.id + '\')">' +
+        '<div class="kc-top">' +
+          '<span class="kc-name">' + k.kind + '</span>' +
+          '<span class="kc-badge cat-' + k.cat + '">' + catLabels[k.cat] + '</span>' +
+        '</div>' +
+        (k.api ? '<div class="kc-api">' + k.api + '</div>' : '') +
+        '<div class="kc-desc">' + k.short + '</div>' +
+      '</div>';
+    });
+  });
+
+  if (!html) {
+    html = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-dim)">No entries match the current filter.</div>';
+  }
+
+  document.getElementById('kindGrid').innerHTML = html;
+}
+
+function showKind(id) {
+  document.querySelectorAll('.kind-card.selected').forEach(function(el) { el.classList.remove('selected'); });
+  var el = document.getElementById('kc-' + id);
+  if (el) el.classList.add('selected');
+
+  var k = BY_ID[id];
+  if (!k) return;
+
+  var catLabels = { velero:'Velero Core', volume:'Volume Snapshot', datamover:'Data Movement', kubevirt:'KubeVirt', oadp:'OADP', kubernetes:'Kubernetes', concepts:'Concept' };
+  var catColors = { velero:'blue', volume:'cyan', datamover:'purple', kubevirt:'orange', oadp:'green', kubernetes:'yellow', concepts:'pink' };
+  var c = catColors[k.cat];
+
+  var html = '<div class="dp-section">' +
+    '<div class="dp-badge" style="background:var(--' + c + '-dim);color:var(--' + c + ')">' + catLabels[k.cat] + '</div>' +
+    '<h3 style="font-size:18px;font-weight:700;color:var(--text);text-transform:none;letter-spacing:-0.3px;margin-bottom:2px;font-family:\'JetBrains Mono\',monospace">' + k.kind + '</h3>' +
+    (k.api ? '<p style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:var(--text-dim)">' + k.api + '</p>' : '') +
+  '</div>';
+
+  html += '<div class="dp-section"><h3>Description</h3><p>' + k.detail.replace(/\n\n/g,'</p><p style="margin-top:8px">') + '</p></div>';
+
+  if (k.controller) {
+    html += '<div class="dp-section"><h3>Managed By</h3><p>' + k.controller + '</p></div>';
+  }
+
+  if (k.phases && k.phases.length) {
+    html += '<div class="dp-section"><h3>Phases / States</h3><div>';
+    k.phases.forEach(function(p) {
+      html += '<span class="dp-phase" style="background:var(--' + p.c + '-dim,var(--bg));color:var(--' + p.c + ',var(--text-dim));border:1px solid var(--' + p.c + '-dim,var(--border))">' + p.name + '</span>';
+    });
+    html += '</div></div>';
+  }
+
+  if (k.relations && k.relations.length) {
+    html += '<div class="dp-section"><h3>Related Kinds</h3><div>';
+    k.relations.forEach(function(relId) {
+      var relKind = BY_ID[relId];
+      if (relKind) {
+        html += '<span class="dp-rel" onclick="showKind(\'' + relKind.id + '\')">' + relKind.kind + '</span>';
+      }
+    });
+    html += '</div></div>';
+  }
+
+  if (k.vizLinks && k.vizLinks.length) {
+    html += '<div class="dp-section"><h3>See in Visualizations</h3>';
+    k.vizLinks.forEach(function(vl) {
+      html += '<a class="dp-viz-link" href="' + vl.page + '">' + vl.label + '</a>';
+    });
+    html += '</div>';
+  }
+
+  if (k.extLinks && k.extLinks.length) {
+    html += '<div class="dp-section"><h3>Learn More</h3>';
+    k.extLinks.forEach(function(el) {
+      html += '<a class="dp-ext-link" href="' + el.url + '" target="_blank" rel="noopener">' + el.label + ' ↗</a><br>';
+    });
+    html += '</div>';
+  }
+
+  if (k.example) {
+    html += '<div class="dp-section"><h3>Example</h3><div class="dp-code">' + esc(k.example) + '</div></div>';
+  }
+
+  document.getElementById('dp').innerHTML = html;
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+renderGrid();
+</script>
+</body>
+</html>
