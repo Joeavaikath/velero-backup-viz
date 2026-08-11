@@ -56,6 +56,7 @@ h1 span{color:var(--text-muted);font-weight:400}
 .card:nth-child(2) .card-tag{background:var(--green-dim);color:var(--green)}
 .card:nth-child(3) .card-tag{background:var(--orange-dim);color:var(--orange)}
 .card:nth-child(4) .card-tag{background:var(--purple-dim);color:var(--purple)}
+.card:nth-child(5) .card-tag{background:var(--cyan-dim);color:var(--cyan)}
 
 /* What this covers */
 .scope{margin-bottom:40px}
@@ -80,6 +81,7 @@ h1 span{color:var(--text-muted);font-weight:400}
   <a class="nav-tab" href="decision-tree.html">Volume Decision Tree</a>
   <a class="nav-tab" href="timeline.html">Timeline</a>
   <a class="nav-tab" href="datamover.html">Data Paths</a>
+  <a class="nav-tab" href="glossary.html">Glossary</a>
 </nav>
 
 <div class="container">
@@ -140,6 +142,12 @@ h1 span{color:var(--text-muted);font-weight:400}
       <h3>Data Mover Paths</h3>
       <p>Compare how data moves from cluster to storage. CSI + Kopia scans the full volume; KubeVirt Datamover uses CBT to move only changed blocks. See both backup and restore flows.</p>
       <div class="card-tag">Interactive comparison</div>
+    </a>
+    <a class="card" href="glossary.html">
+      <div class="card-icon">&#128218;</div>
+      <h3>Kind Glossary</h3>
+      <p>Reference for every CRD and Kubernetes kind involved in backup. Includes concepts like Kopia, CBT, qcow2, CSI, and STS with links to learn more.</p>
+      <div class="card-tag">Searchable reference</div>
     </a>
   </div>
 
